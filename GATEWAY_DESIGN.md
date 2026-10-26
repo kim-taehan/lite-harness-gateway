@@ -2,7 +2,7 @@
 
 > 대상: `litellm/proxy` (Python) 를 완전 대체하는 자립형 LLM 게이트웨이
 > 작성일: 2026-10-26
-> 상태: M0 착수 대기 (오픈 결정 13.1~13.3 확인 필요)
+> 상태: 오픈 결정 모두 확정 (2026-10-26), M0 착수 준비 완료
 > 참고 문서: `ANALYSIS.md` (코드베이스 분석), `SSO_ANALYSIS.md` (SSO 4플로우), `PREMIUM_WALL_REVIEW.md`, `KO_I18N_REVIEW.md`
 > 이문서는 소각된 `KOTLIN_REDESIGN.md` (기존 `kotlin-backend/` 재활용 방향) 를 대체한다. `kotlin-backend/` 는 기반이 아니며, 일부 유닛만 재평가 대상 (10장)
 
@@ -43,7 +43,7 @@ Python `litellm.proxy` 가 폐쇄망 스택에서 수행하는 기능 전체. �
 | (d) | Virtual threads | JDK 21 virtual threads 로 request 처리. 2~3초 LLM 대기의 부하는 근소 (3.1) |
 | (e) | Provider는 SPI | `LlmProvider` 인터페이스로 추상화. 1차 구현은 OpenAI-compatible (Ollama) 1종 |
 | (f) | Air-gapped zero external call | phone-home, telemetry, 외부 폰트/CDN 일절 없음. 외부 호출 대상은 Ollama + Keycloak (내부) 만 |
-| (g) | 프로젝트명 | TBD, working name `llm-gateway` (오픈 결정 13.1) |
+| (g) | 프로젝트명 | `llm-gateway` 확정 (13.1). 디렉터리/image/compose 서비스명 모두 동일, 패키지 `ai.airgap.gateway` |
 
 ---
 
@@ -469,7 +469,7 @@ services:
 ## 12. Non-goals (1차)
 
 - OpenAI-compatible 외 provider (Bedrock/Gemini raw API 등). SPI 로 추가 가능한 구조만 유지
-- `/v1/messages` (Anthropic surface) 는 13.2 확인 전까지 미포함
+- `/v1/messages` (Anthropic surface), `/v1/embeddings` (13.2 확정: OpenAI 표준 클라이언트만)
 - guardrails / content moderation
 - 토큰 기반 동적 rate-limit (TPM/TPS). key 레벨 기본 RPM limit 만 (2단계 1)
 - batch / embedding / image / fine-tuning endpoint
@@ -479,21 +479,18 @@ services:
 
 ---
 
-## 13. 오픈 결정 (M0 착수 전 확인 필요)
+## 13. 오픈 결정 (2026-10-26 확정 완료)
 
 ### 13.1 서비스/디렉터리 최종명
 
-working name `llm-gateway`, 패키지 `ai.airgap.gateway`. 최종 서비스명 (image명, compose service, 디렉터리) 확정.
+**확정: `llm-gateway`.** 디렉터리, Docker image, compose 서비스명이 모두 동일, 패키지는 `ai.airgap.gateway`.
 
 ### 13.2 LLM 클라이언트 인벤토리
 
-게이트웨이에 붙일 클라이언트를 확정하라:
-
-- Claude Code / Codex 등 **Anthropic API 기반** 툴을 붙일 계획이 있는가? 있으면 `/v1/messages` 구현이 범위 (Anthropic surface 은 non-goal 에서 제거)
-- `/v1/embeddings` 필요 여부 (non-goal 에서 제외 중)
+**확정: OpenAI 표준 클라이언트만** (OpenAI SDK / curl 등). Anthropic API 기반 도구(Claude Code/Codex)는 1차 범위에서 제외, `/v1/messages` 와 `/v1/embeddings` 는 non-goal (12장) 유지. 추후 필요 시 SPI/패키지 구조가 추가를 허용.
 
 ### 13.3 Ollama parallelism 기본값
 
-`model_deployment.concurrency` default (현재 설계: 4). GPU 메모리 기준 검증 필요. 24b 모델 1개 생성의 VRAM footprint × N 이 GPU 한계 이내인지 확인 후 확정.
+**확정: `model_deployment.concurrency` default 4.** 24b 모델 4개 동시 생성의 VRAM footprint 가 GPU 한계 이내라고 보았고, 필요 시 `PATCH /api/v1/models/{id}` 로 조정 가능.
 
-**3개 결정 확인 후 M0 착수.**
+**모든 결정 확정 완료. M0 착수 가능.**
