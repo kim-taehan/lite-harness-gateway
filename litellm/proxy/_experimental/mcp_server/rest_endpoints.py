@@ -337,6 +337,11 @@ if MCP_AVAILABLE:
         ``mcp_tool_search_enabled``). Kept out of ``call_tool_rest_api`` so that endpoint stays a single
         dispatch. An upstream 401 raised by the virtual ``mcp_tool_call`` propagates unhandled to the
         caller's ``except MCPUpstreamAuthError`` relay, the same as the direct call path."""
+        from litellm.proxy._experimental.mcp_server.database_query import (
+            DATABASE_QUERY_TOOL_NAME,
+            DEFAULT_DATABASE_QUERY_LIMIT,
+            handle_database_query,
+        )
         from litellm.proxy._experimental.mcp_server.tool_search import (
             AGENT_SEARCH_TOOL_NAME,
             DEFAULT_AGENT_SEARCH_TOP_K,
@@ -351,6 +356,13 @@ if MCP_AVAILABLE:
         from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
         from litellm.proxy.proxy_server import general_settings, proxy_config, proxy_logging_obj
 
+        if tool_name == DATABASE_QUERY_TOOL_NAME:
+            db_arguments: Final[dict[str, object]] = data.get("arguments") or {}
+            return await handle_database_query(
+                sql=str(db_arguments.get("sql", "")),
+                limit=coerce_top_k(db_arguments.get("limit"), default=DEFAULT_DATABASE_QUERY_LIMIT),
+                user_api_key_dict=user_api_key_dict,
+            )
         if not getattr(getattr(user_api_key_dict, "object_permission", None), "mcp_tool_search_enabled", False):
             raise HTTPException(
                 status_code=403,
@@ -1062,12 +1074,18 @@ if MCP_AVAILABLE:
                     False,
                 )
             ):
+                from litellm.proxy._experimental.mcp_server.database_query import (
+                    database_query_tool_definition,
+                )
                 from litellm.proxy._experimental.mcp_server.tool_search import (
                     get_virtual_tool_definitions,
                 )
 
+                admin_definition: Final = (
+                    (database_query_tool_definition(),) if user_api_key_has_admin_view(user_api_key_dict) else ()
+                )
                 return {
-                    "tools": get_virtual_tool_definitions(),
+                    "tools": get_virtual_tool_definitions() + admin_definition,
                     "error": None,
                     "message": "Successfully retrieved tools",
                 }
@@ -1344,9 +1362,12 @@ if MCP_AVAILABLE:
             tool_name: Final[str | None] = data.get("name")
             tool_arguments: Final[dict[str, object]] = data.get("arguments") or {}
 
+            from litellm.proxy._experimental.mcp_server.database_query import DATABASE_QUERY_TOOL_NAME
             from litellm.proxy._experimental.mcp_server.tool_search import VIRTUAL_TOOL_NAMES
 
-            if tool_name in VIRTUAL_TOOL_NAMES:
+            if tool_name is not None and (
+                tool_name in VIRTUAL_TOOL_NAMES or tool_name == DATABASE_QUERY_TOOL_NAME
+            ):
                 return await _handle_virtual_mcp_tool(request, data, tool_name, user_api_key_dict)
 
             # Validate required parameters early

@@ -426,6 +426,11 @@ async def _dispatch_virtual_mcp_tool(
     the caller falls through to normal tool routing.
     """
     from litellm.llms.litellm_proxy.skills.skill_search import DEFAULT_SKILL_SEARCH_TOP_K
+    from litellm.proxy._experimental.mcp_server.database_query import (
+        DATABASE_QUERY_TOOL_NAME,
+        DEFAULT_DATABASE_QUERY_LIMIT,
+        handle_database_query,
+    )
     from litellm.proxy._experimental.mcp_server.tool_search import (
         AGENT_SEARCH_TOOL_NAME,
         DEFAULT_AGENT_SEARCH_TOP_K,
@@ -541,6 +546,14 @@ async def _dispatch_virtual_mcp_tool(
                 request_data=types.MappingProxyType({"name": name, "arguments": proxy_arguments}),
             )
         return proxy_result
+
+    if name == DATABASE_QUERY_TOOL_NAME:
+        db_args: Final = arguments or {}
+        return await handle_database_query(
+            sql=str(db_args.get("sql", "")),
+            limit=coerce_top_k(db_args.get("limit"), default=DEFAULT_DATABASE_QUERY_LIMIT),
+            user_api_key_dict=user_api_key_auth,
+        )
 
     if name not in VIRTUAL_TOOL_NAMES:
         return None
@@ -3278,7 +3291,16 @@ async def _execute_handle_list_tools(
         ):
             if params.cursor is not None:
                 raise MCPError(code=INVALID_PARAMS, message="Invalid pagination cursor; start a fresh listing")
-            return ListToolsResult(tools=[Tool.model_validate(d) for d in get_virtual_tool_definitions()])
+            from litellm.proxy._experimental.mcp_server.database_query import database_query_tool_definition
+            from litellm.types.proxy.auth.user_api_key_auth import user_api_key_has_admin_view
+
+            admin_definition: Final = (
+                (database_query_tool_definition(),)
+                if user_api_key_auth is not None and user_api_key_has_admin_view(user_api_key_auth)
+                else ()
+            )
+            definitions: Final = get_virtual_tool_definitions() + admin_definition
+            return ListToolsResult(tools=[Tool.model_validate(d) for d in definitions])
 
         from litellm.proxy._experimental.mcp_server.catalog import list_gateway_catalog
         from litellm.proxy._experimental.mcp_server.server_resolution import MCPServerTargetCatalog
