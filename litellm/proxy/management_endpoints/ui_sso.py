@@ -660,19 +660,7 @@ def _cli_poll_attribution_metadata_from_session(
     return {}
 
 
-def _render_cli_sso_verification_page(
-    verify_url: str,
-    browser_complete_token: str,
-    prefill_user_code: str | None = None,
-) -> str:
-    escaped_verify_url: Final = escape(verify_url, quote=True)
-    escaped_browser_complete_token: Final = escape(browser_complete_token, quote=True)
-    user_code_value_attr: Final = f' value="{escape(prefill_user_code, quote=True)}"' if prefill_user_code else ""
-    instructions: Final = (
-        "Confirm the verification code below to finish this login."
-        if prefill_user_code
-        else "Enter the verification code shown in your terminal to finish this login."
-    )
+def _render_cli_login_page(heading: str, instructions: str, action_url: str, form_fields: str) -> str:
     return f"""
     <!doctype html>
     <html>
@@ -699,13 +687,17 @@ def _render_cli_sso_verification_page(
           }}
           h1 {{ font-size: 22px; margin: 0 0 12px; }}
           p {{ line-height: 1.5; margin: 0 0 18px; color: #334155; }}
-          label {{ display: block; font-weight: 600; margin-bottom: 8px; }}
+          p.error {{ color: #b91c1c; }}
+          label {{ display: block; font-weight: 600; margin: 12px 0 8px; }}
           input {{
             box-sizing: border-box;
             width: 100%;
             padding: 12px;
             border: 1px solid #cbd5e1;
             border-radius: 6px;
+            font-size: 16px;
+          }}
+          #user_code {{
             font-size: 20px;
             letter-spacing: 0.08em;
             text-transform: uppercase;
@@ -725,18 +717,55 @@ def _render_cli_sso_verification_page(
       </head>
       <body>
         <main>
-          <h1>Complete CLI Login</h1>
-          <p>{instructions}</p>
-          <form method="post" action="{escaped_verify_url}">
-            <input type="hidden" name="browser_complete_token" value="{escaped_browser_complete_token}" />
-            <label for="user_code">Verification code</label>
-            <input id="user_code" name="user_code" autocomplete="one-time-code"{user_code_value_attr} required autofocus />
+          <h1>{escape(heading)}</h1>
+          {instructions}
+          <form method="post" action="{escape(action_url, quote=True)}">
+            {form_fields}
             <button type="submit">Continue</button>
           </form>
         </main>
       </body>
     </html>
     """
+
+
+def _render_cli_sso_verification_page(
+    verify_url: str,
+    browser_complete_token: str,
+    prefill_user_code: str | None = None,
+) -> str:
+    escaped_browser_complete_token: Final = escape(browser_complete_token, quote=True)
+    user_code_value_attr: Final = f' value="{escape(prefill_user_code, quote=True)}"' if prefill_user_code else ""
+    instructions: Final = (
+        "Confirm the verification code below to finish this login."
+        if prefill_user_code
+        else "Enter the verification code shown in your terminal to finish this login."
+    )
+    return _render_cli_login_page(
+        heading="Complete CLI Login",
+        instructions=f"<p>{instructions}</p>",
+        action_url=verify_url,
+        form_fields=(
+            f'<input type="hidden" name="browser_complete_token" value="{escaped_browser_complete_token}" />\n'
+            '<label for="user_code">Verification code</label>\n'
+            f'<input id="user_code" name="user_code" autocomplete="one-time-code"{user_code_value_attr} required autofocus />'
+        ),
+    )
+
+
+def _render_cli_password_login_page(action_url: str, error: str | None = None) -> str:
+    error_html: Final = f'<p class="error">{escape(error)}</p>' if error else ""
+    return _render_cli_login_page(
+        heading="Sign in to LiteLLM",
+        instructions=f"<p>Sign in with your LiteLLM account to finish this CLI login.</p>{error_html}",
+        action_url=action_url,
+        form_fields=(
+            '<label for="username">Email</label>\n'
+            '<input id="username" name="username" type="email" autocomplete="username" required autofocus />\n'
+            '<label for="password">Password</label>\n'
+            '<input id="password" name="password" type="password" autocomplete="current-password" required />'
+        ),
+    )
 
 
 @router.post("/sso/cli/start", tags=["experimental"], include_in_schema=False)
@@ -1158,6 +1187,23 @@ async def google_login(
         key=key,
         user_code=(user_code if _cli_sso_verification_uri_complete_enabled() else None),
     )
+
+    sso_configured: Final = (
+        microsoft_client_id is not None
+        or google_client_id is not None
+        or generic_client_id is not None
+        or SAMLAuthHandler.is_saml_configured()
+        or user_custom_ui_sso_sign_in_handler is not None
+    )
+    if is_cli_sso_login and not admin_ui_is_disabled and _cli_sso_password_login_enabled(sso_configured):
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse(
+            content=_render_cli_password_login_page(
+                action_url=get_custom_url(request_base_url=str(request.base_url), route=f"sso/cli/password/{key}")
+            ),
+            status_code=200,
+        )
 
     # check if user defined a custom auth sso sign in handler, if yes, use it
     if user_custom_ui_sso_sign_in_handler is not None:
@@ -2466,8 +2512,6 @@ async def _complete_cli_sso_callback_session(
     prefill_user_code: str | None = None,
     sso_assertion: SSOIdentityAssertion | None = None,
 ):
-    from fastapi.responses import HTMLResponse
-
     from litellm.proxy.proxy_server import user_custom_sso
 
     user_id: Final = parsed_openid_result.get("user_id")
@@ -2517,25 +2561,45 @@ async def _complete_cli_sso_callback_session(
             attribution_metadata=attribution_metadata,
         )
 
-    flow["session_data"] = {
-        "user_id": resolved_user_id,
-        "user_role": user_info.user_role,
-        "models": user_info.models if hasattr(user_info, "models") else [],
-        "user_email": user_email,
-        "teams": resolved_teams,
-        "team_details": [detail.model_dump() for detail in team_details],
-        "attribution_metadata": attribution_metadata,
-    }
+    return _store_cli_sso_session(
+        request=request,
+        key=key,
+        flow=cast(dict[str, object], flow),
+        session_data={
+            "user_id": resolved_user_id,
+            "user_role": user_info.user_role,
+            "models": user_info.models if hasattr(user_info, "models") else [],
+            "user_email": user_email,
+            "teams": resolved_teams,
+            "team_details": [detail.model_dump() for detail in team_details],
+            "attribution_metadata": attribution_metadata,
+        },
+        cli_sso_session_cache=cli_sso_session_cache,
+        prefill_user_code=prefill_user_code,
+    )
+
+
+def _store_cli_sso_session(
+    *,
+    request: Request,
+    key: str,
+    flow: dict[str, object],
+    session_data: dict[str, object],
+    cli_sso_session_cache: DualCache,
+    prefill_user_code: str | None = None,
+):
+    from fastapi.responses import HTMLResponse
+
+    flow["session_data"] = session_data
     flow["sso_complete"] = True
     browser_complete_token: Final = secrets.token_urlsafe(32)
     flow["browser_complete_token_hash"] = _hash_cli_sso_secret(browser_complete_token)
     _set_cli_sso_flow(login_id=key, cache=cli_sso_session_cache, flow=flow)
 
     verbose_proxy_logger.info(
-        "Stored CLI SSO session for user: %s, teams: %s, num_teams: %s",
-        resolved_user_id,
-        resolved_teams,
-        len(resolved_teams),
+        "Stored CLI SSO session for user: %s, teams: %s",
+        session_data.get("user_id"),
+        session_data.get("teams"),
     )
     verify_url: Final = get_custom_url(
         request_base_url=str(request.base_url),
@@ -2622,6 +2686,80 @@ async def cli_sso_callback(
     except Exception as e:
         verbose_proxy_logger.error("Error with CLI SSO callback: %s", e)
         raise HTTPException(status_code=500, detail=f"Failed to process CLI SSO: {e}")
+
+
+def _cli_sso_password_login_enabled(sso_configured: bool) -> bool:
+    """CLI logins fall back to LiteLLM username/password when no SSO provider is configured,
+    or always when CLI_SSO_PASSWORD_LOGIN is set."""
+    return get_secret_bool("CLI_SSO_PASSWORD_LOGIN") is True or not sso_configured
+
+
+@router.post("/sso/cli/password/{login_id}", tags=["experimental"], include_in_schema=False)
+async def cli_sso_password_login(request: Request, login_id: str):
+    from fastapi.responses import HTMLResponse
+
+    from litellm.proxy.auth.login_throttle import LoginThrottle
+    from litellm.proxy.auth.login_utils import authenticate_user
+    from litellm.proxy import proxy_server
+    from litellm.proxy.proxy_server import cli_sso_session_cache, master_key, prisma_client, redis_usage_cache
+
+    settings: Final = cast(Mapping[str, object], proxy_server.general_settings)
+    flow: Final = cast(dict[str, object], _get_cli_sso_flow_or_raise(login_id=login_id, cache=cli_sso_session_cache))
+    if prisma_client is None:
+        raise HTTPException(status_code=500, detail=CommonProxyErrors.db_not_connected_error.value)
+
+    action_url: Final = get_custom_url(request_base_url=str(request.base_url), route=f"sso/cli/password/{login_id}")
+    form: Final = await request.form()
+    try:
+        login_result: Final = await authenticate_user(
+            username=str(form.get("username") or ""),
+            password=str(form.get("password") or ""),
+            master_key=master_key,
+            prisma_client=prisma_client,
+            throttle=LoginThrottle.from_request(request, settings, redis_usage_cache),
+            general_settings=settings,
+        )
+    except ProxyException as exc:
+        return HTMLResponse(
+            content=_render_cli_password_login_page(action_url=action_url, error=exc.message),
+            status_code=int(exc.code),
+            headers=exc.headers,
+        )
+    if login_result.password_reset_required:
+        return HTMLResponse(
+            content=_render_cli_password_login_page(
+                action_url=action_url,
+                error="This password must be changed before it can be used. Change it in the Admin UI, then sign in again.",
+            ),
+            status_code=403,
+        )
+
+    user_row: Final = cast(
+        LiteLLM_UserTable | None,
+        await UserRepository(prisma_client).table.find_unique(where={"user_id": login_result.user_id}),
+    )
+    teams: Final = user_row.teams if user_row is not None else []
+    team_details: Final = await fetch_cli_sso_team_details(prisma_client=prisma_client, teams=teams)
+    if team_details is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not resolve team model grants for this login. Please try again",
+        )
+    return _store_cli_sso_session(
+        request=request,
+        key=login_id,
+        flow=flow,
+        session_data={
+            "user_id": login_result.user_id,
+            "user_role": login_result.user_role,
+            "models": cast(list[str], user_row.models) if user_row is not None else [],
+            "user_email": login_result.user_email,
+            "teams": _cli_sso_session_teams(team_details),
+            "team_details": [detail.model_dump() for detail in team_details],
+            "attribution_metadata": None,
+        },
+        cli_sso_session_cache=cli_sso_session_cache,
+    )
 
 
 @router.get("/sso/cli/poll/{key_id}", tags=["experimental"], include_in_schema=False)

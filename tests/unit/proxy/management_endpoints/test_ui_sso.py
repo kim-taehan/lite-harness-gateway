@@ -10982,3 +10982,192 @@ async def test_cli_sso_login_never_serves_the_admin_login_form_on_a_ui_disabled_
     body = response.body.decode()
     assert "Admin UI is Disabled" in body
     assert 'name="username"' not in body
+
+
+async def _cli_key_generate_with_google_sso(*, login_id: str, password_login_flag: str | None):
+    from litellm.proxy.management_endpoints.ui_sso import _get_cli_sso_flow_cache_key, google_login
+
+    excluded: Final = (*_SSO_PROVIDER_ENV_VARS, "CLI_SSO_PASSWORD_LOGIN")
+    env_without_sso_providers = {name: value for name, value in os.environ.items() if name not in excluded}
+    env = {
+        **env_without_sso_providers,
+        "PROXY_BASE_URL": "https://proxy.example.com",
+        "GOOGLE_CLIENT_ID": "google-client-id",
+        "GOOGLE_CLIENT_SECRET": "google-client-secret",
+        **({"CLI_SSO_PASSWORD_LOGIN": password_login_flag} if password_login_flag is not None else {}),
+    }
+    flows = {_get_cli_sso_flow_cache_key(login_id): {"poll_secret_hash": "h"}}
+    cli_cache = MagicMock(redis_cache=None)
+    cli_cache.get_cache.side_effect = lambda key: flows.get(key)
+    mock_request = MagicMock(spec=Request)
+    mock_request.base_url = "https://proxy.example.com/"
+    mock_request.url.scheme = "https"
+    mock_request.cookies = {}
+
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("litellm.proxy.proxy_server.premium_user", True),
+        patch("litellm.proxy.proxy_server.prisma_client", MagicMock()),
+        patch("litellm.proxy.proxy_server.master_key", MASTER_KEY),
+        patch("litellm.proxy.proxy_server.general_settings", {}),
+        patch("litellm.proxy.proxy_server.user_api_key_cache", MagicMock()),
+        patch("litellm.proxy.proxy_server.cli_sso_session_cache", cli_cache),
+        patch("litellm.proxy.proxy_server.user_custom_ui_sso_sign_in_handler", None),
+        patch("litellm.proxy.management_endpoints.ui_sso.show_missing_vars_in_env", return_value=None),
+        patch(
+            _SSO_HTTP_CLIENT_FACTORY,
+            return_value=_sso_http_handler(lambda _request: httpx.Response(200, json=_GOOGLE_DISCOVERY_DOCUMENT)),
+        ),
+    ):
+        return await google_login(request=mock_request, source="litellm-cli", key=login_id)
+
+
+@pytest.mark.asyncio
+async def test_cli_login_serves_litellm_password_form_when_password_login_is_forced():
+    login_id = "cli-password-login-session-01"
+
+    response = await _cli_key_generate_with_google_sso(login_id=login_id, password_login_flag="true")
+
+    assert response.status_code == 200
+    body = response.body.decode()
+    assert f'action="https://proxy.example.com/sso/cli/password/{login_id}"' in body
+    assert 'name="password"' in body
+
+
+@pytest.mark.asyncio
+async def test_cli_login_still_redirects_to_the_idp_without_the_password_login_flag():
+    response = await _cli_key_generate_with_google_sso(
+        login_id="cli-password-login-session-02", password_login_flag=None
+    )
+
+    assert response.status_code in (302, 303, 307)
+    assert response.headers["location"].startswith("https://accounts.google.com/")
+
+
+class _CliPasswordLoginHarness:
+    def __init__(self, login_id: str, user_code: str):
+        from litellm.proxy.management_endpoints.ui_sso import (
+            _get_cli_sso_flow_cache_key,
+            _hash_cli_sso_secret,
+            _normalize_cli_sso_user_code,
+        )
+
+        self.login_id = login_id
+        self.flows: dict[str, dict] = {
+            _get_cli_sso_flow_cache_key(login_id): {
+                "poll_secret_hash": _hash_cli_sso_secret("poll-secret"),
+                "user_code_hash": _hash_cli_sso_secret(_normalize_cli_sso_user_code(user_code)),
+                "sso_complete": False,
+                "user_code_verified": False,
+                "session_data": None,
+            }
+        }
+        self.cache = MagicMock(redis_cache=None)
+        self.cache.get_cache.side_effect = lambda key: self.flows.get(key)
+        self.cache.set_cache.side_effect = lambda key, value, ttl=None: self.flows.__setitem__(key, value)
+
+    def flow(self) -> dict:
+        from litellm.proxy.management_endpoints.ui_sso import _get_cli_sso_flow_cache_key
+
+        return self.flows[_get_cli_sso_flow_cache_key(self.login_id)]
+
+    async def submit_password(self, authenticate_user: AsyncMock, user_row: LiteLLM_UserTable | None = None):
+        from litellm.proxy.management_endpoints.ui_sso import CliSsoTeamDetail, cli_sso_password_login
+
+        mock_request = MagicMock(spec=Request)
+        mock_request.base_url = "https://proxy.example.com/"
+        mock_request.form = AsyncMock(return_value={"username": "dev@example.com", "password": "pw"})
+        user_repository = MagicMock()
+        user_repository.return_value.table.find_unique = AsyncMock(return_value=user_row)
+        team_details = (CliSsoTeamDetail(team_id="team-1", team_alias="Platform", team_models=["qwen3-coder"]),)
+
+        with (
+            patch.dict(os.environ, {"PROXY_BASE_URL": "https://proxy.example.com", "SERVER_ROOT_PATH": ""}),
+            patch("litellm.proxy.proxy_server.prisma_client", MagicMock()),
+            patch("litellm.proxy.proxy_server.master_key", MASTER_KEY),
+            patch("litellm.proxy.proxy_server.general_settings", {}),
+            patch("litellm.proxy.proxy_server.user_api_key_cache", self.cache),
+            patch("litellm.proxy.proxy_server.cli_sso_session_cache", self.cache),
+            patch("litellm.proxy.auth.login_throttle.LoginThrottle.from_request", return_value=MagicMock()),
+            patch("litellm.proxy.auth.login_utils.authenticate_user", authenticate_user),
+            patch("litellm.proxy.management_endpoints.ui_sso.UserRepository", user_repository),
+            patch(
+                "litellm.proxy.management_endpoints.ui_sso.fetch_cli_sso_team_details",
+                AsyncMock(return_value=team_details),
+            ),
+        ):
+            return await cli_sso_password_login(request=mock_request, login_id=self.login_id)
+
+
+@pytest.mark.asyncio
+async def test_cli_password_login_binds_the_account_and_its_teams_to_the_cli_flow():
+    from litellm.proxy.auth.login_utils import LoginResult
+    from litellm.proxy.management_endpoints.ui_sso import cli_sso_complete
+
+    harness = _CliPasswordLoginHarness(login_id="cli-password-login-session-03", user_code="ABCD-EFGH")
+    authenticate_user = AsyncMock(
+        return_value=LoginResult(
+            user_id="user-1", key="ui-session-key", user_email="dev@example.com", user_role="internal_user"
+        )
+    )
+    user_row = LiteLLM_UserTable(user_id="user-1", user_role="internal_user", teams=["team-1"], models=[])
+
+    response = await harness.submit_password(authenticate_user, user_row)
+
+    assert response.status_code == 200
+    session_data = harness.flow()["session_data"]
+    assert session_data["user_id"] == "user-1"
+    assert session_data["user_email"] == "dev@example.com"
+    assert session_data["teams"] == ["team-1"]
+    assert list(session_data["team_details"][0]["team_models"]) == ["qwen3-coder"]
+
+    browser_complete_token = response.body.decode().split('name="browser_complete_token" value="')[1].split('"')[0]
+    complete_request = MagicMock(spec=Request)
+    complete_request.body = AsyncMock(
+        return_value=f"user_code=ABCD-EFGH&browser_complete_token={browser_complete_token}".encode()
+    )
+    with (
+        patch("litellm.proxy.proxy_server.user_api_key_cache", harness.cache),
+        patch("litellm.proxy.proxy_server.cli_sso_session_cache", harness.cache),
+    ):
+        completed = await cli_sso_complete(request=complete_request, login_id=harness.login_id)
+
+    assert completed.status_code == 200
+    assert harness.flow()["user_code_verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_cli_password_login_rejects_bad_credentials_without_completing_the_flow():
+    harness = _CliPasswordLoginHarness(login_id="cli-password-login-session-04", user_code="ABCD-EFGH")
+    authenticate_user = AsyncMock(
+        side_effect=ProxyException(message="Invalid credentials", type="auth_error", param="invalid_credentials", code=401)
+    )
+
+    response = await harness.submit_password(authenticate_user)
+
+    assert response.status_code == 401
+    assert "Invalid credentials" in response.body.decode()
+    assert harness.flow()["sso_complete"] is False
+    assert harness.flow()["session_data"] is None
+
+
+@pytest.mark.asyncio
+async def test_cli_password_login_refuses_a_password_that_must_be_changed_first():
+    from litellm.proxy.auth.login_utils import LoginResult
+
+    harness = _CliPasswordLoginHarness(login_id="cli-password-login-session-05", user_code="ABCD-EFGH")
+    authenticate_user = AsyncMock(
+        return_value=LoginResult(
+            user_id="user-1",
+            key="ui-session-key",
+            user_email="dev@example.com",
+            user_role="internal_user",
+            password_reset_required=True,
+        )
+    )
+
+    response = await harness.submit_password(authenticate_user)
+
+    assert response.status_code == 403
+    assert "must be changed" in response.body.decode()
+    assert harness.flow()["sso_complete"] is False
