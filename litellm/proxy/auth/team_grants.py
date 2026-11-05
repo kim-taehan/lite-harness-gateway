@@ -73,6 +73,7 @@ class TeamGrants(TypedDict, total=False):
     team_member_spend: ReadOnly[float | None]
     team_member_tpm_limit: ReadOnly[int | None]
     team_member_rpm_limit: ReadOnly[int | None]
+    team_member_tpd_limit: ReadOnly[int | None]
 
 
 _TEAM_GRANT_AUTH_FIELDS: Final[frozenset[str]] = frozenset(
@@ -89,6 +90,7 @@ _TEAM_GRANT_AUTH_FIELDS: Final[frozenset[str]] = frozenset(
         "team_member_spend",
         "team_member_tpm_limit",
         "team_member_rpm_limit",
+        "team_member_tpd_limit",
     }
 )
 
@@ -209,5 +211,8 @@ def team_grants(
         ),
         team_member_rpm_limit=(
             team_membership.safe_get_team_member_rpm_limit() if team_membership is not None else None
+        ),
+        team_member_tpd_limit=(
+            team_membership.safe_get_team_member_tpd_limit() if team_membership is not None else None
         ),
     )

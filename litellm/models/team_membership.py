@@ -26,3 +26,8 @@ class LiteLLM_TeamMembership(LiteLLMPydanticObjectBase):
         if self.litellm_budget_table is not None:
             return self.litellm_budget_table.tpm_limit
         return None
+
+    def safe_get_team_member_tpd_limit(self) -> int | None:
+        if self.litellm_budget_table is not None:
+            return self.litellm_budget_table.tpd_limit
+        return None

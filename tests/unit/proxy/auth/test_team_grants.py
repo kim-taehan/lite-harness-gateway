@@ -50,7 +50,7 @@ def _membership() -> LiteLLM_TeamMembership:
         user_id=USER_ID,
         team_id=TEAM_ID,
         spend=3.25,
-        litellm_budget_table=LiteLLM_BudgetTable(tpm_limit=500, rpm_limit=5),
+        litellm_budget_table=LiteLLM_BudgetTable(tpm_limit=500, rpm_limit=5, tpd_limit=30000),
     )
 
 
@@ -85,6 +85,7 @@ def test_team_grants_cover_every_team_field_the_key_path_gets():
     assert token.team_member_spend == 3.25
     assert token.team_member_tpm_limit == 500
     assert token.team_member_rpm_limit == 5
+    assert token.team_member_tpd_limit == 30000
 
 
 def test_team_grants_without_team_leave_token_defaults():
@@ -131,3 +132,4 @@ def test_membership_limits_absent_without_membership_row():
     assert grants["team_member_spend"] is None
     assert grants["team_member_tpm_limit"] is None
     assert grants["team_member_rpm_limit"] is None
+    assert grants["team_member_tpd_limit"] is None

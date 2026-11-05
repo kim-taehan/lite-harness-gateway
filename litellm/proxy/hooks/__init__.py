@@ -7,6 +7,7 @@ from .cache_control_check import (  # noqa: F401  # backwards-compatible package
     PROXY_CacheControlCheck,
     _PROXY_CacheControlCheck,  # pyright: ignore[reportPrivateUsage]  # backwards-compatible package export
 )
+from .daily_token_limiter import PROXY_DailyTokenLimiter
 from .litellm_skills import SkillsInjectionHook
 from .max_budget_per_session_limiter import (  # noqa: F401  # backwards-compatible package export
     PROXY_MaxBudgetPerSessionHandler,
@@ -45,6 +46,7 @@ PROXY_HOOKS: Final = {
     "sensitive_data_routing": PROXY_SensitiveDataRoutingHandler,
     "prompt_cache_prediction": PromptCacheObserver,
     "autorouter_baseline_cache": AutoRouterBaselineCache,
+    "daily_token_limiter": PROXY_DailyTokenLimiter,
 }
 
 ## FEATURE FLAG HOOKS ##
