@@ -1,4 +1,4 @@
-"""Fails the run when a fork-created unit test file takes over 3s or any single test over 2s
+"""Fails the run when a fork-created unit test file spends over 3s in test bodies or any single test takes over 2s
 
 Load with `pytest -p tests.airgap.slow_gate`. A busy machine stretches timings, so files over the limit are rerun
 alone up to RECHECK_TRIES times and judged by the fastest run. The limits stay fixed so failures stay predictable
@@ -14,7 +14,7 @@ import tempfile
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from itertools import accumulate, groupby, repeat
+from itertools import accumulate, repeat
 from pathlib import Path
 from typing import Final
 
@@ -26,9 +26,8 @@ SLOW_FILE_SECONDS: Final = 3.0
 SLOW_TEST_SECONDS: Final = 2.0
 RECHECK_TRIES: Final = 3
 RECHECK_ENV: Final = "AIRGAP_SLOW_RECHECK"
-_DURATIONS: Final[defaultdict[str, float]] = defaultdict(
-    float
-)  # mutable-ok: pytest hands over reports one phase at a time
+_CALLS: Final[defaultdict[str, float]] = defaultdict(float)  # mutable-ok: pytest reports arrive one phase at a time
+_TOTALS: Final[defaultdict[str, float]] = defaultdict(float)  # mutable-ok: pytest reports arrive one phase at a time
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,13 +68,22 @@ def fastest_alone(
     return tuple(_until_fast(bests, fork_owned))[-1]
 
 
-def timings_by_file(durations: Mapping[str, float]) -> tuple[Timing, ...]:
-    by_file: Final = groupby(sorted(durations.items()), key=lambda item: item[0].split("::")[0])
-    return tuple(_timing(file, tuple(seconds for _, seconds in items)) for file, items in by_file)
+def timings_by_file(calls: Mapping[str, float], totals: Mapping[str, float]) -> tuple[Timing, ...]:
+    """File time sums test bodies only. Upstream's autouse fixtures cost ~30ms of setup per test, which we cannot
+    shrink, so counting setup would just cap the number of tests per file. A single test keeps all its phases"""
+    files: Final = sorted({_file_of(nodeid) for nodeid in totals})
+    return tuple(
+        Timing(file, _sum_for(file, calls), max((v for k, v in totals.items() if _file_of(k) == file), default=0.0))
+        for file in files
+    )
 
 
-def _timing(file: str, seconds: tuple[float, ...]) -> Timing:
-    return Timing(file, sum(seconds), max(seconds))
+def _file_of(nodeid: str) -> str:
+    return nodeid.split("::")[0]
+
+
+def _sum_for(file: str, durations: Mapping[str, float]) -> float:
+    return sum(seconds for nodeid, seconds in durations.items() if _file_of(nodeid) == file)
 
 
 def _time_alone(file: str) -> Timing:
@@ -95,14 +103,16 @@ def _time_alone(file: str) -> Timing:
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    _DURATIONS[report.nodeid] += report.duration
+    _TOTALS[report.nodeid] += report.duration
+    if report.when == "call":
+        _CALLS[report.nodeid] += report.duration
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
     config: Final = session.config
     if hasattr(config, "workerinput"):
         return
-    timings: Final = timings_by_file(_DURATIONS)
+    timings: Final = timings_by_file(_CALLS, _TOTALS)
     recheck_report: Final = os.environ.get(RECHECK_ENV)
     if recheck_report:
         worst: Final = max(timings, key=lambda t: t.file_seconds, default=Timing("", 0.0, 0.0))

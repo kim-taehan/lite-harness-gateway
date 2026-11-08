@@ -12,6 +12,7 @@ from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 UPSTREAM_REF: Final = os.environ.get("AIRGAP_UPSTREAM_REF", "origin/main")
+DIFF_TARGET: Final = os.environ.get("AIRGAP_DIFF_TARGET", "")
 SOURCE_ROOTS: Final = ("litellm/", "gateway/", "backend/", "enterprise/")
 HUNK: Final = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
@@ -51,7 +52,7 @@ def _added_lines(patch: str) -> dict[str, frozenset[int]]:
     return dict(filter(None, map(_chunk_added_lines, patch.split("\ndiff --git "))))
 
 
-def _untracked(base: str) -> tuple[ForkFile, ...]:
+def _untracked() -> tuple[ForkFile, ...]:
     def read(path: str) -> ForkFile:
         try:
             count: Final = len((REPO_ROOT / path).read_text(encoding="utf-8").splitlines())
@@ -65,21 +66,25 @@ def _untracked(base: str) -> tuple[ForkFile, ...]:
 
 @cache
 def fork_files() -> tuple[ForkFile, ...]:
-    """Everything the fork changed on top of upstream, including uncommitted work in this checkout"""
+    """Everything the fork changed on top of upstream. Includes uncommitted work unless AIRGAP_DIFF_TARGET names a commit"""
     base: Final = git("merge-base", UPSTREAM_REF, "HEAD").strip()
+    target: Final = (DIFF_TARGET,) if DIFF_TARGET else ()
     statuses: Final = dict(
-        reversed(line.split("\t", 1)) for line in git("diff", "--no-renames", "--name-status", base).splitlines()
+        reversed(line.split("\t", 1))
+        for line in git("diff", "--no-renames", "--name-status", base, *target).splitlines()
     )
     numstat: Final = {
         parts[2]: (int(parts[0]) if parts[0] != "-" else 0, int(parts[1]) if parts[1] != "-" else 0)
-        for parts in (line.split("\t", 2) for line in git("diff", "--no-renames", "--numstat", base).splitlines())
+        for parts in (
+            line.split("\t", 2) for line in git("diff", "--no-renames", "--numstat", base, *target).splitlines()
+        )
     }
-    added_lines: Final = _added_lines(git("diff", "--no-renames", "-U0", base))
+    added_lines: Final = _added_lines(git("diff", "--no-renames", "-U0", base, *target))
     tracked: Final = tuple(
         ForkFile(path, status[0], *numstat.get(path, (0, 0)), added_lines.get(path, frozenset()))
         for path, status in sorted(statuses.items())
     )
-    return tracked + _untracked(base)
+    return tracked if DIFF_TARGET else tracked + _untracked()
 
 
 def unit_tests_to_run() -> tuple[str, ...]:

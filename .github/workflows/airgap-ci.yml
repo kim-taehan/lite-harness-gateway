@@ -33,9 +33,12 @@ jobs:
           version: "0.10.9"
       - run: uv sync --frozen --group proxy-dev --extra proxy
       - run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
+      # 설치 단계가 작업 트리를 건드릴 수 있어서, 무엇이 바뀌었는지 남기고 검사는 커밋된 코드로 한다
+      - run: git status --short
       - run: sh scripts/airgap_check.sh
         env:
           AIRGAP_UPSTREAM_REF: origin/main
+          AIRGAP_DIFF_TARGET: HEAD
 
   lint:
     name: upstream 린트 게이트

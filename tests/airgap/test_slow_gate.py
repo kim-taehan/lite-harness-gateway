@@ -47,10 +47,7 @@ def test_fastest_alone_keeps_the_minimum_of_each_measure_across_tries() -> None:
     assert len(calls) == 3
 
 
-def test_timings_sum_phases_per_file_and_keep_the_slowest_test() -> None:
-    durations: Final = {
-        "tests/unit/a.py::test_x": 1.0,
-        "tests/unit/a.py::test_y": 1.5,
-        "tests/unit/b.py::C::test_z": 0.2,
-    }
-    assert timings_by_file(durations) == (Timing("tests/unit/a.py", 2.5, 1.5), Timing("tests/unit/b.py", 0.2, 0.2))
+def test_file_time_counts_test_bodies_and_test_time_counts_every_phase() -> None:
+    calls: Final = {"tests/unit/a.py::test_x": 1.0, "tests/unit/a.py::test_y": 1.5, "tests/unit/b.py::C::test_z": 0.1}
+    totals: Final = {"tests/unit/a.py::test_x": 1.2, "tests/unit/a.py::test_y": 1.6, "tests/unit/b.py::C::test_z": 2.4}
+    assert timings_by_file(calls, totals) == (Timing("tests/unit/a.py", 2.5, 1.6), Timing("tests/unit/b.py", 0.1, 2.4))
