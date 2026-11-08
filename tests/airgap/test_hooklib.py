@@ -144,8 +144,23 @@ def test_push_to_work_branch_is_allowed(args: tuple[str, ...], current: str) -> 
     assert hooklib.protected_push_verdict(args, current).ok
 
 
-def _run(name: str, status: str, conclusion: str = "", started: str = "2026-11-08T10:00:00Z") -> dict[str, str]:
-    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion, "startedAt": started}
+def _run(
+    name: str, status: str, conclusion: str = "", started: str = "2026-11-08T10:00:00Z", workflow: str = "airgap CI"
+) -> dict[str, str]:
+    return {
+        "__typename": "CheckRun",
+        "name": name,
+        "status": status,
+        "conclusion": conclusion,
+        "startedAt": started,
+        "workflowName": workflow,
+    }
+
+
+def test_ci_ignores_runs_of_other_workflows() -> None:
+    upstream: Final = _run("Conventional PR Title", "COMPLETED", "CANCELLED", workflow="Conventional PR Title")
+    assert hooklib.ci_verdict("litellm_airgap", [upstream, _run("unit", "COMPLETED", "SUCCESS")]).ok
+    assert not hooklib.ci_verdict("litellm_airgap", [upstream]).ok
 
 
 def test_ci_all_green_passes_and_skipped_or_neutral_are_not_failures() -> None:

@@ -16,6 +16,7 @@ from typing import Final, NoReturn
 
 PROTECTED_BRANCHES: Final = frozenset({"main", "litellm_airgap"})
 CI_BASES: Final = frozenset({"litellm_airgap"})
+CI_WORKFLOW: Final = "airgap CI"
 
 _PATH_ARG: Final = r"""(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))"""
 _LEADING_CD: Final = re.compile(r"^\s*cd\s+" + _PATH_ARG + r"\s*(?:&&|;)")
@@ -256,10 +257,12 @@ def _check_state(item: Mapping[str, object]) -> _Check:
 
 
 def ci_verdict(base: str, checks: Iterable[Mapping[str, object]] | None) -> Verdict:
-    """Mergeable only when every latest run of each PR check finished green"""
+    """Mergeable only when the latest run of every airgap CI check finished green. Disabled upstream workflows may
+    still leave cancelled runs on the PR, so checks from other workflows are ignored"""
     if base not in CI_BASES:
         return OK
-    states: Final = sorted(map(_check_state, checks or ()), key=lambda c: c.started_at)
+    ours: Final = (item for item in checks or () if item.get("workflowName") in (None, "", CI_WORKFLOW))
+    states: Final = sorted(map(_check_state, ours), key=lambda c: c.started_at)
     latest: Final = tuple({c.name: c for c in states}.values())
     if not latest:
         return Verdict(False, "PR 의 CI 검사가 아직 시작되지 않았습니다. CI 가 끝난 뒤 머지해 주세요")

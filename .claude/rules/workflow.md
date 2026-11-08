@@ -16,4 +16,4 @@
 10. 커밋 전에 `/convention-review` 로 변경을 이 규칙들과 대조한다. (훅이 심사 없는 커밋을 막는다, `.claude/hooks/require_convention_review.py`)
 11. 규칙을 더하거나 바꾸면 fork 코드 전체에 소급해 위반을 센다. 기계로 잴 수 있으면 `tests/airgap/` 에 검사를 붙이고 [필수] 규칙 줄 끝에 검사 위치를 적는다(못 재면 `— 커밋 심사`). 기존 위반이 있으면 기준선(`tests/airgap/baseline/`)으로 고정하고 새로 생기는 것만 막는다. 기준선은 늘어도, 줄었는데 그대로여도 실패한다. 갱신은 `UPDATE_AIRGAP_BASELINE=1 .venv/bin/python -m pytest tests/airgap`. (`/convention-review` 가 확인한다)
 12. 크기가 M·L 이거나 핵심 흐름(추론 경로, 인증·SSO, 키·팀·예산, 사용량 회계, 마이그레이션)에 닿는 PR 은 머지 전에 `reviewer` 에이전트(`.claude/agents/reviewer.md`)에게 PR 번호를 주고, 남긴 지적을 처리하거나 처리하지 않는 이유를 PR 에 적는다. 작업은 `worker` 에이전트(`.claude/agents/worker.md`)가 이 흐름을 따른다
-13. upstream 동기화는 GitHub 의 Sync fork 로 `main` 을 올린 뒤, `litellm_airgap` 에서 `sync_<YYYYMMDD>` 브랜치를 만들어 `origin/main` 을 머지하고 PR 로 올린다. 동기화 뒤에는 `scripts/airgap_disable_upstream_workflows.sh` 를 돌려 새로 들어온 upstream 워크플로를 끈다
+13. upstream 동기화는 GitHub 의 Sync fork 로 `main` 을 올린 뒤, `litellm_airgap` 에서 `sync_<YYYYMMDD>` 브랜치를 만들어 `origin/main` 을 머지하고 PR 로 올린다. 동기화 뒤나 PR 에 upstream 워크플로가 돌면 `scripts/airgap_disable_upstream_workflows.sh` 를 돌려 끈다. GitHub 은 워크플로가 처음 돌 때 등록하므로 미리 다 끌 수 없다. 머지 훅은 `airgap CI` 검사만 본다
