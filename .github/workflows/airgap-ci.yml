@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# liteadmin-mcp 를 GitHub archive 에서 받는 데 러너에서 30초를 넘기는 일이 잦다
+env:
+  UV_HTTP_TIMEOUT: "300"
+  UV_HTTP_RETRIES: "5"
+
 concurrency:
   group: airgap-ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -31,7 +36,7 @@ jobs:
       - uses: ./.github/actions/setup-uv-with-retries
         with:
           version: "0.10.9"
-      # 의존성 하나(liteadmin-mcp)를 GitHub archive 에서 받는데 그 주소가 자주 시간 초과가 나서 내려받은 것을 남겨 둔다
+      # 위의 느린 내려받기를 한 번 성공한 뒤에는 다시 하지 않게 남겨 둔다
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/uv
@@ -61,7 +66,7 @@ jobs:
       - uses: ./.github/actions/setup-uv-with-retries
         with:
           version: "0.10.9"
-      # 의존성 하나(liteadmin-mcp)를 GitHub archive 에서 받는데 그 주소가 자주 시간 초과가 나서 내려받은 것을 남겨 둔다
+      # 위의 느린 내려받기를 한 번 성공한 뒤에는 다시 하지 않게 남겨 둔다
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/uv
