@@ -31,6 +31,13 @@ jobs:
       - uses: ./.github/actions/setup-uv-with-retries
         with:
           version: "0.10.9"
+      # 의존성 하나(liteadmin-mcp)를 GitHub archive 에서 받는데 그 주소가 자주 시간 초과가 나서 내려받은 것을 남겨 둔다
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-airgap-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-airgap-
       - run: uv sync --frozen --group proxy-dev --extra proxy
       - run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
       # CI 는 커밋된 코드만 잰다. 설치 단계가 만든 파일이 fork 변경으로 잡히지 않게
@@ -54,6 +61,13 @@ jobs:
       - uses: ./.github/actions/setup-uv-with-retries
         with:
           version: "0.10.9"
+      # 의존성 하나(liteadmin-mcp)를 GitHub archive 에서 받는데 그 주소가 자주 시간 초과가 나서 내려받은 것을 남겨 둔다
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-airgap-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-airgap-
       # openapi 게이트가 proxy 앱을 띄워서 proxy extra 가 필요하다. make lint 의 sync 는 --inexact 라 지우지 않는다
       - run: uv sync --frozen --group proxy-dev --group e2e-dev --extra proxy
       # 게이트는 PR 대상 브랜치와의 merge-base 대비 개수가 늘면 실패한다
