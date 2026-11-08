@@ -1,0 +1,58 @@
+# fork PR 검사. litellm_airgap 으로 가는 PR 마다 머지 조건(.claude/rules/workflow.md 4번)을 GitHub 에서도 돌린다
+# upstream 에서 온 다른 워크플로는 Actions 에서 꺼 둔다(scripts/airgap_disable_upstream_workflows.sh)
+# 브랜치 보호를 쓰지 않으므로 이 검사가 빨개도 GitHub 은 머지를 막지 않는다. 머지 훅(.claude/hooks/check_before_merge.py)이 초록을 확인한다
+# 훅의 CI_BASES(.claude/hooks/hooklib.py)와 아래 branches 를 같게 둔다
+name: airgap CI
+
+on:
+  pull_request:
+    branches: [litellm_airgap]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: airgap-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fork 규칙, 훅, 단위 테스트
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-uv-with-retries
+        with:
+          version: "0.10.9"
+      - run: uv sync --frozen --group proxy-dev --extra proxy
+      - run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
+      - run: sh scripts/airgap_check.sh
+        env:
+          AIRGAP_UPSTREAM_REF: origin/main
+
+  lint:
+    name: upstream 린트 게이트
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-uv-with-retries
+        with:
+          version: "0.10.9"
+      # 게이트는 PR 대상 브랜치와의 merge-base 대비 개수가 늘면 실패한다
+      - run: make lint BASE_REF=origin/${{ github.base_ref }}
+        env:
+          LITELLM_GATE_SLOTS: "1"
