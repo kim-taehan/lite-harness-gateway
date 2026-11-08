@@ -224,7 +224,7 @@ def test_freshness_requires_the_latest_base_only_on_ci_bases() -> None:
 def _hook(script: str, command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     payload: Final = json.dumps({"tool_input": {"command": command}, "cwd": str(cwd)})
     return subprocess.run(
-        [sys.executable, str(HOOKS_DIR / script)], input=payload, capture_output=True, text=True, check=False
+        ["python3", str(HOOKS_DIR / script)], input=payload, capture_output=True, text=True, check=False
     )
 
 

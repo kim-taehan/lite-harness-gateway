@@ -1,5 +1,6 @@
 {
   ".gitignore": 9,
+  "README.md": 744,
   "litellm/models/team_membership.py": 5,
   "litellm/proxy/_experimental/mcp_server/operations.py": 24,
   "litellm/proxy/_experimental/mcp_server/rest_endpoints.py": 23,

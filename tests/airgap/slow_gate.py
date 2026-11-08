@@ -89,7 +89,7 @@ def _sum_for(file: str, durations: Mapping[str, float]) -> float:
 def _time_alone(file: str) -> Timing:
     with tempfile.TemporaryDirectory() as directory:
         report: Final = Path(directory) / "timing.json"
-        subprocess.run(
+        subprocess.run(  # test-quality-ok: the recheck imports this plugin from the checkout via -m, like the parent run
             [sys.executable, "-m", "pytest", file, "-q", "-p", "tests.airgap.slow_gate", "-p", "no:cacheprovider"],
             env={**os.environ, RECHECK_ENV: str(report)},
             stdout=subprocess.DEVNULL,

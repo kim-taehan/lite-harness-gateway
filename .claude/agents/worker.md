@@ -12,7 +12,7 @@ tools: Read, Edit, Write, Grep, Glob, Bash, Skill
 1. **이슈**: 맡은 일로 GitHub 이슈를 만든다(`gh issue create`). 제목·본문은 비개발자도 읽을 수 있게 쉽게 (workflow 1·9번)
 2. **브랜치**: 최신 `origin/litellm_airgap` 에서 worktree 로 만든다. 이름은 workflow 2번
    ```sh
-   git fetch -q origin
+   git fetch -q origin +refs/heads/litellm_airgap:refs/remotes/origin/litellm_airgap   # 이 저장소의 기본 fetch 설정은 main 만 받는다
    git worktree add -b <브랜치> <scratchpad>/wt-<이름> origin/litellm_airgap
    ln -s <저장소>/.venv <worktree>/.venv   # 링크만, 커밋하지 않는다
    ```

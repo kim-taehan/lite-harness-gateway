@@ -2,7 +2,7 @@
 
 fork 전용 검사다. upstream 의 `tests/unit/` 미러 규칙을 따르지 않는다. 규칙 본문은 `.claude/rules/` 에 있다
 
-`fork_diff.py` 가 "fork 코드" 를 정한다. `origin/main`(upstream)과의 merge-base 대비 바뀐 파일과 더한 줄이고, 아직 커밋하지 않은 수정과 새 파일도 넣는다. CI 는 설치 단계가 작업 트리를 건드려서 `AIRGAP_DIFF_TARGET=HEAD` 로 커밋된 것만 본다. 다른 기준 브랜치를 쓰려면 `AIRGAP_UPSTREAM_REF` 를 준다
+`fork_diff.py` 가 "fork 코드" 를 정한다. `origin/main`(upstream)과의 merge-base 대비 바뀐 파일과 더한 줄이고, 아직 커밋하지 않은 수정과 새 파일도 넣는다. CI 는 `AIRGAP_DIFF_TARGET=HEAD` 로 커밋된 것만 본다. 다른 기준 브랜치를 쓰려면 `AIRGAP_UPSTREAM_REF` 를 준다
 
 `test_fork_rules.py` 는 기준선(`baseline/*.json`, 파일별 개수)과 비교한다. 늘어도 실패하고, 줄었는데 기준선을 그대로 두어도 실패한다. 갱신은 `UPDATE_AIRGAP_BASELINE=1 .venv/bin/python -m pytest tests/airgap -q`
 

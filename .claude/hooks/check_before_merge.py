@@ -101,7 +101,7 @@ def check(command: str, cwd: str) -> None:
 
     if base in CI_BASES:
         try:
-            git(cwd, "fetch", "-q", "origin", base)
+            git(cwd, "fetch", "-q", "origin", f"+refs/heads/{base}:refs/remotes/origin/{base}")
         except subprocess.CalledProcessError:
             block(
                 f"origin/{base} 를 받아 오지 못해 PR 브랜치가 최신인지 확인할 수 없습니다. 네트워크를 확인한 뒤 다시 머지해 주세요"

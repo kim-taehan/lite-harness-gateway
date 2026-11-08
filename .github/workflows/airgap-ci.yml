@@ -33,8 +33,7 @@ jobs:
           version: "0.10.9"
       - run: uv sync --frozen --group proxy-dev --extra proxy
       - run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
-      # 설치 단계가 작업 트리를 건드릴 수 있어서, 무엇이 바뀌었는지 남기고 검사는 커밋된 코드로 한다
-      - run: git status --short
+      # CI 는 커밋된 코드만 잰다. 설치 단계가 만든 파일이 fork 변경으로 잡히지 않게
       - run: sh scripts/airgap_check.sh
         env:
           AIRGAP_UPSTREAM_REF: origin/main
@@ -55,6 +54,8 @@ jobs:
       - uses: ./.github/actions/setup-uv-with-retries
         with:
           version: "0.10.9"
+      # openapi 게이트가 proxy 앱을 띄워서 proxy extra 가 필요하다. make lint 의 sync 는 --inexact 라 지우지 않는다
+      - run: uv sync --frozen --group proxy-dev --group e2e-dev --extra proxy
       # 게이트는 PR 대상 브랜치와의 merge-base 대비 개수가 늘면 실패한다
       - run: make lint BASE_REF=origin/${{ github.base_ref }}
         env:
