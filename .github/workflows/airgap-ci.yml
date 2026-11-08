@@ -38,6 +38,8 @@ jobs:
           version: "0.10.9"
       - run: uv sync --frozen --group proxy-dev --extra proxy
       - run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
+      # 훅은 사용자 PC 의 시스템 python3(macOS 3.9)로 돈다. 3.9 에서 읽히고 훅 테스트가 통과하는지 본다
+      - run: uv run --no-project --python 3.9 --with pytest python -m pytest -p no:cacheprovider -c /dev/null --rootdir . tests/airgap/test_hooklib.py -q
       # CI 는 커밋된 코드만 잰다. 설치 단계가 만든 파일이 fork 변경으로 잡히지 않게
       - run: sh scripts/airgap_check.sh
         env:

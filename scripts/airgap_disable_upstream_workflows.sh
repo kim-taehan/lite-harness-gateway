@@ -7,8 +7,9 @@ gh=$(command -v gh || echo /opt/homebrew/bin/gh)
 GH_TOKEN=$("$gh" auth token -u kim-taehan)
 export GH_TOKEN
 
-"$gh" api --paginate "repos/$repo/actions/workflows" --jq '.workflows[] | select(.state == "active") | [.id, .path] | @tsv' |
-while IFS="$(printf '\t')" read -r id path; do
+active=$("$gh" api --paginate "repos/$repo/actions/workflows" --jq '.workflows[] | select(.state == "active") | [.id, .path] | @tsv')
+printf '%s\n' "$active" | while IFS="$(printf '\t')" read -r id path; do
+    [ -n "$id" ] || continue
     case "$path" in
         .github/workflows/airgap-ci.yml) continue ;;
     esac

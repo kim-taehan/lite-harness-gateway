@@ -97,7 +97,7 @@ def _time_alone(file: str) -> Timing:
             check=False,
         )
         if not report.exists():
-            return Timing(file, 0.0, 0.0)
+            return Timing(file, float("inf"), float("inf"))
         data: Final = json.loads(report.read_text(encoding="utf-8"))
         return Timing(file, float(data["file_seconds"]), float(data["test_seconds"]))
 
@@ -132,4 +132,5 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         "가짜 시계나 가짜 의존으로 바꾸거나, 실물이 필요하면 tests/e2e/ 로 옮겨 주세요\n",
     )
     sys.stderr.write("\n".join(lines))
-    session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    failed: Final = pytest.ExitCode.TESTS_FAILED
+    session.exitstatus = failed  # rebind-ok: pytest reads the exit code from this session

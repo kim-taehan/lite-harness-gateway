@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Mapping
 import json
 import subprocess
 import sys
@@ -132,6 +133,43 @@ def test_push_to_protected_branch_is_blocked(args: tuple[str, ...], current: str
 
 
 @pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin feat_2_x && git push origin main",
+        "git push --all origin",
+        "git push --mirror origin",
+        "{ git push origin main; }",
+        "if true; then git push origin main; fi",
+        "for b in x; do git push origin litellm_airgap; done",
+        "! git push origin main",
+        "timeout 60 git push origin main",
+        "nice -n 5 git push origin main",
+        "echo main | xargs -I{} git push origin {}",
+        "eval git push origin main",
+        'echo "$(git push origin main)"',
+        "echo `git push origin main`",
+        "B=main; git push origin $B",
+        "(cd /tmp/other && git push)",
+        "git fetch && cd /tmp/other && git push",
+        "git -C /tmp/main_checkout push",
+    ],
+)
+def test_push_command_to_protected_or_unknown_branch_is_blocked(command: str) -> None:
+    def branch_for(dash_c: str | None) -> str:
+        return "main" if dash_c == "/tmp/main_checkout" else "feat_2_x"
+
+    assert not hooklib.push_command_verdict(command, branch_for).ok
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["git push -u origin feat_2_x", "cd /tmp/wt && git push", "git push origin feat_2_x && git push origin fix_3_y"],
+)
+def test_push_command_to_work_branches_is_allowed(command: str) -> None:
+    assert hooklib.push_command_verdict(command, lambda _dash_c: "feat_2_x").ok
+
+
+@pytest.mark.parametrize(
     ("args", "current"),
     [
         (("-u", "origin", "feat_2_x"), "feat_2_x"),
@@ -146,7 +184,7 @@ def test_push_to_work_branch_is_allowed(args: tuple[str, ...], current: str) -> 
 
 def _run(
     name: str, status: str, conclusion: str = "", started: str = "2026-11-08T10:00:00Z", workflow: str = "airgap CI"
-) -> dict[str, str]:
+) -> Mapping[str, str]:
     return {
         "__typename": "CheckRun",
         "name": name,
@@ -189,8 +227,8 @@ def test_ci_still_running_blocks_until_done() -> None:
     assert "끝난 뒤" in verdict.reason
 
 
-@pytest.mark.parametrize("checks", [[], None])
-def test_ci_with_no_checks_on_a_ci_base_has_not_started(checks: list[dict[str, str]] | None) -> None:
+@pytest.mark.parametrize("checks", [(), None])
+def test_ci_with_no_checks_on_a_ci_base_has_not_started(checks: tuple[Mapping[str, str], ...] | None) -> None:
     assert not hooklib.ci_verdict("litellm_airgap", checks).ok
 
 
@@ -205,13 +243,26 @@ def test_ci_judges_the_latest_rerun_of_a_check() -> None:
     assert hooklib.ci_verdict("litellm_airgap", [old, again]).ok
 
 
-def test_ci_reads_legacy_status_contexts() -> None:
-    def status(state: str) -> list[dict[str, str]]:
-        return [{"__typename": "StatusContext", "context": "ext", "state": state}]
+def test_ci_needs_an_airgap_ci_check_even_when_other_statuses_are_green() -> None:
+    external: Final = {"__typename": "StatusContext", "context": "ext", "state": "SUCCESS"}
+    assert not hooklib.ci_verdict("litellm_airgap", [external]).ok
 
-    assert not hooklib.ci_verdict("litellm_airgap", status("PENDING")).ok
-    assert "ext" in hooklib.ci_verdict("litellm_airgap", status("ERROR")).reason
-    assert hooklib.ci_verdict("litellm_airgap", status("SUCCESS")).ok
+
+def test_ci_treats_a_queued_rerun_as_newer_than_an_old_success() -> None:
+    old: Final = _run("unit", "COMPLETED", "SUCCESS", "2026-11-08T10:00:00Z")
+    queued: Final = _run("unit", "QUEUED", "", "")
+    assert not hooklib.ci_verdict("litellm_airgap", [queued, old]).ok
+    assert not hooklib.ci_verdict("litellm_airgap", [old, _run("unit", "QUEUED", "", "0001-01-01T00:00:00Z")]).ok
+
+
+@pytest.mark.parametrize("base", ["main", "feat_1_x", ""])
+def test_merge_only_into_litellm_airgap(base: str) -> None:
+    assert not hooklib.merge_base_verdict(base).ok
+    assert hooklib.merge_base_verdict("litellm_airgap").ok
+
+
+def test_every_merge_in_a_command_is_found() -> None:
+    assert hooklib.all_commands("gh pr merge 5 && gh pr merge 3", MERGE) == (("5",), ("3",))
 
 
 def test_freshness_requires_the_latest_base_only_on_ci_bases() -> None:
@@ -221,18 +272,22 @@ def test_freshness_requires_the_latest_base_only_on_ci_bases() -> None:
     assert hooklib.freshness_verdict("feat_1_x", False).ok
 
 
-def _hook(script: str, command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    payload: Final = json.dumps({"tool_input": {"command": command}, "cwd": str(cwd)})
+def _hook(script: str, stdin: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["python3", str(HOOKS_DIR / script)], input=payload, capture_output=True, text=True, check=False
+        ["python3", str(HOOKS_DIR / script)], input=stdin, capture_output=True, text=True, check=False
     )
 
 
-def test_hook_blocks_instead_of_crashing_open(tmp_path: Path) -> None:
-    result: Final = _hook("block_protected_push.py", "git push origin feat_1", tmp_path)
+def _payload(command: str, cwd: Path) -> str:
+    return json.dumps({"tool_input": {"command": command}, "cwd": str(cwd)})
+
+
+@pytest.mark.parametrize("script", ["block_protected_push.py", "require_convention_review.py", "check_before_merge.py"])
+def test_hook_blocks_instead_of_crashing_open(script: str) -> None:
+    result: Final = _hook(script, "not json")
     assert result.returncode == 2
     assert "오류" in result.stderr
 
 
 def test_hook_ignores_unrelated_commands(tmp_path: Path) -> None:
-    assert _hook("block_protected_push.py", "ls -la", tmp_path).returncode == 0
+    assert _hook("block_protected_push.py", _payload("ls -la", tmp_path)).returncode == 0

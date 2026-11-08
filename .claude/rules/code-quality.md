@@ -5,7 +5,7 @@
 [필수] 줄 끝의 `— tests/…` 는 그 규칙을 자동으로 막는 검사, `— 커밋 심사` 는 자동 검사가 없어 `/convention-review` 와 사람이 지키는 것이다
 
 ## 의존성
-1. **[필수]** 새 패키지를 넣지 않는다(`pyproject.toml`·`uv.lock` 를 fork 에서 바꾸지 않는다). 폐쇄망 이미지는 upstream 과 같은 잠금 파일로 만든다. 꼭 필요하면 리더와 정한 뒤 이 규칙과 검사를 함께 바꾼다. — `tests/airgap/test_fork_rules.py`
+1. **[필수]** 새 패키지를 넣지 않는다. Python 은 `pyproject.toml`·`uv.lock` 를 fork 에서 바꾸지 않는 것으로 잰다. UI(`ui/`)의 `package.json` 과 잠금 파일, requirements 파일은 커밋 심사가 본다. 폐쇄망 이미지는 upstream 과 같은 잠금 파일로 만든다. 꼭 필요하면 리더와 정한 뒤 이 규칙과 검사를 함께 바꾼다. — `tests/airgap/test_fork_rules.py` + 커밋 심사(UI·requirements)
 2. **[필수]** `AGENTS.md` 의 코딩 규약을 어기는 개수가 PR 대상 브랜치보다 늘지 않는다(ruff strict·타입 규칙·basedpyright·테스트 품질 게이트). — `.github/workflows/airgap-ci.yml`
 
 ## 비밀 값

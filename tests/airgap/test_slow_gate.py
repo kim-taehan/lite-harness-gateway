@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from typing import Final
 
 from tests.airgap.slow_gate import Timing, fastest_alone, over_limit, timings_by_file
@@ -8,7 +8,7 @@ from tests.airgap.slow_gate import Timing, fastest_alone, over_limit, timings_by
 FORK_OWNED: Final = frozenset({"a.py"})
 
 
-def _measurements(*runs: tuple[float, float]) -> tuple[Callable[[str], Timing], list[str]]:
+def _measurements(*runs: tuple[float, float]) -> tuple[Callable[[str], Timing], Sequence[str]]:
     calls: Final[list[str]] = []  # mutable-ok: records how many solo runs the gate asked for
     queue: Final[Iterator[tuple[float, float]]] = iter(runs)
 

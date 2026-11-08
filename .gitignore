@@ -157,10 +157,10 @@ coverage-rust.xml
 .mypy_cache/
 
 # airgap fork harness (.claude/rules/workflow.md)
-!.claude/
-.claude/*
-!.claude/settings.json
-!.claude/rules/
-!.claude/hooks/
-!.claude/agents/
-!.claude/skills/
+!/.claude/
+/.claude/*
+!/.claude/settings.json
+!/.claude/rules/
+!/.claude/hooks/
+!/.claude/agents/
+!/.claude/skills/

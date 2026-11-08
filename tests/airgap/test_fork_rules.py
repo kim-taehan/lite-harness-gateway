@@ -19,7 +19,7 @@ def _source(path: str) -> str:
 
 
 def test_upstream_files_touched_only_as_much_as_the_baseline() -> None:
-    footprint: Final = {f.path: f.added + f.deleted for f in fork_files() if f.status == "M"}
+    footprint: Final = {f.path: f.added + f.deleted for f in fork_files() if f.status in ("M", "D")}
     assert not check_baseline("upstream_footprint", footprint)
 
 
@@ -73,7 +73,7 @@ def test_every_required_rule_names_an_existing_check() -> None:
 
 
 UPSTREAM_HARNESS: Final = re.compile(
-    r"^(AGENTS\.md|\.github/workflows/(?!airgap-ci\.yml$).+|scripts/[a-z_]+_gate\.py)$"
+    r"^(AGENTS\.md|\.github/workflows/(?!airgap-ci\.yml$).+|scripts/(?:[a-z_]+_gate|gate_slot_lock|lint_base_counts|check_[a-z_]+)\.py)$"
 )
 
 

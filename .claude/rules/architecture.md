@@ -11,5 +11,5 @@
 4. **[필수]** `AGENTS.md`, upstream 워크플로, upstream 린트 게이트(`scripts/*_gate.py`)는 고치지 않는다. fork 전용 규칙은 `.claude/rules/`, 검사는 `tests/airgap/`, CI 는 `.github/workflows/airgap-ci.yml` 에 둔다. — `tests/airgap/test_fork_rules.py`
 
 ## 바깥과의 경계
-5. **[필수]** 런타임 코드에 폐쇄망 밖 주소를 새로 넣지 않는다. 허용은 localhost·127.x·`host.docker.internal`·`.internal`·`.local`·`.svc` 같은 내부 이름뿐이다. 문서 문자열(docstring)은 세지 않는다. — `tests/airgap/test_fork_rules.py`
+5. **[필수]** 런타임 코드에 폐쇄망 밖 주소를 새로 넣지 않는다. 허용은 localhost·127.x·`host.docker.internal`·`.internal`·`.local`·`.svc` 같은 내부 이름뿐이다. — `tests/airgap/test_fork_rules.py`(`litellm/`·`gateway/`·`backend/`·`enterprise/` 의 Python 문자열 속 `http(s)://` 주소, docstring 제외) + 커밋 심사(UI·설정 파일, `ws://`, 주소 없는 호스트 이름)
 6. **[필수]** OpenAI 호환 추론 surface(`/v1/chat/completions`, `/v1/models`)의 요청·응답 모양을 바꾸지 않는다. 클라이언트는 OpenAI SDK 를 그대로 쓴다. — 커밋 심사

@@ -9,9 +9,10 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping
 from typing import Final
 
-from hooklib import CI_BASES, block, ci_verdict, find_command, freshness_verdict, git, run_hook
+from hooklib import CI_BASES, all_commands, block, ci_verdict, freshness_verdict, git, merge_base_verdict, run_hook
 
 GH_CANDIDATES: Final = ("gh", "/opt/homebrew/bin/gh", "/usr/local/bin/gh")
 VALUE_FLAGS: Final = frozenset(
@@ -35,7 +36,7 @@ def gh_binary() -> str | None:
     return next((found for found in map(shutil.which, GH_CANDIDATES) if found), None)
 
 
-def gh_env(gh: str, cwd: str) -> dict[str, str]:
+def gh_env(gh: str, cwd: str) -> Mapping[str, str]:
     """Uses the repo owner's gh login when one exists, since the active gh account may be a different one"""
     remote: Final = git(cwd, "remote", "get-url", "origin").strip()
     owner: Final = remote.rstrip("/").removesuffix(".git").replace(":", "/").split("/")[-2]
@@ -48,9 +49,12 @@ def gh_env(gh: str, cwd: str) -> dict[str, str]:
 
 
 def check(command: str, cwd: str) -> None:
-    args: Final = find_command(command, ("gh", "pr", "merge"))
-    if args is None:
+    merges: Final = all_commands(command, ("gh", "pr", "merge"))
+    if not merges:
         return
+    if len(merges) > 1:
+        block("한 명령에 gh pr merge 가 여럿 있습니다. 머지는 PR 하나씩 해 주세요. 훅이 PR 마다 검사합니다")
+    args: Final = merges[0]
     gh: Final = gh_binary()
     if gh is None:
         block(
@@ -82,6 +86,9 @@ def check(command: str, cwd: str) -> None:
         block("머지할 PR 을 찾지 못했습니다. PR 번호와 gh 로그인 계정을 확인해 주세요")
     pr: Final = json.loads(view.stdout)
     base: Final = str(pr.get("baseRefName") or "")
+    target: Final = merge_base_verdict(base)
+    if not target.ok:
+        block(target.reason)
 
     current: Final = git(cwd, "branch", "--show-current").strip()
     if pr.get("headRefName") != current:

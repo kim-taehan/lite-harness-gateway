@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from itertools import chain
@@ -35,7 +36,13 @@ class ForkFile:
 
 
 def git(*args: str) -> str:
-    return subprocess.run(["git", *args], cwd=REPO_ROOT, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        ["git", "-c", "color.ui=never", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", *args],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
 
 
 def _chunk_added_lines(chunk: str) -> tuple[str, frozenset[int]] | None:
@@ -48,7 +55,7 @@ def _chunk_added_lines(chunk: str) -> tuple[str, frozenset[int]] | None:
     return target, frozenset(chain.from_iterable(ranges))
 
 
-def _added_lines(patch: str) -> dict[str, frozenset[int]]:
+def _added_lines(patch: str) -> Mapping[str, frozenset[int]]:
     return dict(filter(None, map(_chunk_added_lines, patch.split("\ndiff --git "))))
 
 
