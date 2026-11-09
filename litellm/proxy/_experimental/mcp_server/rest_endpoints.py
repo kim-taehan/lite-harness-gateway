@@ -1365,9 +1365,7 @@ if MCP_AVAILABLE:
             from litellm.proxy._experimental.mcp_server.database_query import DATABASE_QUERY_TOOL_NAME
             from litellm.proxy._experimental.mcp_server.tool_search import VIRTUAL_TOOL_NAMES
 
-            if tool_name is not None and (
-                tool_name in VIRTUAL_TOOL_NAMES or tool_name == DATABASE_QUERY_TOOL_NAME
-            ):
+            if tool_name is not None and (tool_name in VIRTUAL_TOOL_NAMES or tool_name == DATABASE_QUERY_TOOL_NAME):
                 return await _handle_virtual_mcp_tool(request, data, tool_name, user_api_key_dict)
 
             # Validate required parameters early

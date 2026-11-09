@@ -2698,9 +2698,9 @@ def _cli_sso_password_login_enabled(sso_configured: bool) -> bool:
 async def cli_sso_password_login(request: Request, login_id: str):
     from fastapi.responses import HTMLResponse
 
+    from litellm.proxy import proxy_server
     from litellm.proxy.auth.login_throttle import LoginThrottle
     from litellm.proxy.auth.login_utils import authenticate_user
-    from litellm.proxy import proxy_server
     from litellm.proxy.proxy_server import cli_sso_session_cache, master_key, prisma_client, redis_usage_cache
 
     settings: Final = cast(Mapping[str, object], proxy_server.general_settings)
