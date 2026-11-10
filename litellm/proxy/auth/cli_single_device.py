@@ -86,11 +86,18 @@ async def enforce_cli_single_device(token: UserAPIKeyAuth, user: LiteLLM_UserTab
     """Refuse ``token`` with a 401 when its user has logged in on another device since it was minted.
 
     The cached user row can be older than a login this very device just made, so a mismatch is re-checked
-    against a fresh read before refusing. The message names no credential.
+    against a fresh read before refusing. When that read fails the token is admitted, the way the grant
+    refresh keeps the minted grants when a row cannot be read. The message names no credential.
     """
     if not is_signed_out(_metadata(token), _metadata(user)):
         return
-    fresh: Final = await reload_user(user.user_id)
+    try:
+        fresh: Final = await reload_user(user.user_id)
+    except Exception as e:  # noqa: BLE001  # an unreadable row must not sign out a device that may be the latest
+        verbose_proxy_logger.warning(
+            "CLI single-device check skipped, user %s could not be re-read: %s", user.user_id, e
+        )
+        return
     if fresh is not None and not is_signed_out(_metadata(token), _metadata(fresh)):
         return
     raise ProxyException(
@@ -111,18 +118,30 @@ def db_user_reloader(prisma_client: "PrismaClient", cache: "UserApiKeyCache") ->
     return reload
 
 
-async def record_cli_login(users: UserRows, user_id: str, login_id: str) -> None:
-    """Make ``login_id`` the only live CLI login of a flagged user; leave every other user untouched.
+def _metadata_after_login(current: Mapping[str, object], login_id: str) -> Mapping[str, object] | None:
+    """The user metadata to write after a CLI login, or None when nothing changes."""
+    if _single_device(current):
+        return {**current, ACTIVE_LOGIN_KEY: login_id}
+    if ACTIVE_LOGIN_KEY in current:
+        return {key: value for key, value in current.items() if key != ACTIVE_LOGIN_KEY}
+    return None
 
-    A database fault never fails the login itself: the new device signs in, and the user's other devices
-    stay signed in until a later login is recorded.
+
+async def record_cli_login(users: UserRows, user_id: str, login_id: str) -> None:
+    """Make ``login_id`` the only live CLI login of a flagged user.
+
+    For a user who is not flagged, a login id left over from when they were drops out, so turning the flag
+    back on later keeps every device until their next login. A database fault never fails the login itself:
+    the new device signs in, and the user's other devices stay signed in until a later login is recorded.
     """
     try:
         user: Final = await users.find_by_id(user_id, id_field="user_id")
-        if user is None or not _single_device(_metadata(user)):
+        if user is None:
             return
-        metadata: Final = {**_metadata(user), ACTIVE_LOGIN_KEY: login_id}
-        await users.update(user_id, {"metadata": json.dumps(metadata)}, id_field="user_id")
+        updated: Final = _metadata_after_login(_metadata(user), login_id)
+        if updated is None:
+            return
+        await users.update(user_id, {"metadata": json.dumps(dict(updated))}, id_field="user_id")
     except Exception as e:  # noqa: BLE001  # the login already succeeded; only the single-device record is lost
         verbose_proxy_logger.warning("Could not record the CLI login for user %s: %s", user_id, e)
 

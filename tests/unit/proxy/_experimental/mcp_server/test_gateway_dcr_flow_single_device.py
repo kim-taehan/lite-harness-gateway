@@ -6,14 +6,19 @@ from typing import Final
 from unittest.mock import patch
 
 import pytest
-from fastapi import Response
+from fastapi import Request, Response
 
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._experimental.mcp_server.gateway_dcr_flow import (
     PROXY_API_AUDIENCE,
+    AssertionIdentity,
     MintedProxyCredential,
     ProxyCredentialMintFailure,
+    ReloadUserFailure,
     SessionSigning,
+    SubjectIdentity,
+    SubjectTokenRefusal,
+    _GrantIssuer,  # pyright: ignore[reportPrivateUsage]  # the token-exchange and jwt-bearer tails
     _ProxyCredentialIssuer,  # pyright: ignore[reportPrivateUsage]  # the grant tail every proxy-API grant shares
     _SingleUseGuard,  # pyright: ignore[reportPrivateUsage]  # the grant tail every proxy-API grant shares
     resolve_session_signing,
@@ -113,3 +118,55 @@ async def test_a_replayed_grant_does_not_sign_out_the_device_that_redeemed_it(pr
     assert redeemed.status_code == 200
     assert replayed.status_code == 400
     assert _active_login(prisma) == minter.login_ids[0]
+
+
+async def _no_reload_failure(user_id: str) -> ReloadUserFailure | None:
+    return None
+
+
+def _grant_issuer(minter: _LoginMinter, signing: SessionSigning) -> _GrantIssuer:
+    request: Final = Request({"type": "http", "method": "POST", "path": "/token", "headers": []})
+    return _GrantIssuer(request, None, signing, _no_reload_failure, minter, _SingleUseGuard(DualCache()))
+
+
+@pytest.mark.asyncio
+async def test_every_token_exchange_is_a_new_login(prisma: FakePrisma) -> None:
+    signing: Final = _signing()
+    minter: Final = _LoginMinter()
+    issue: Final = _grant_issuer(minter, signing)
+
+    async def exchange(subject_token: str, request: Request, /) -> SubjectIdentity | SubjectTokenRefusal:
+        return SubjectIdentity(user_id=_USER_ID)
+
+    first: Final = await issue.exchange("idp-token", _CLIENT_ID, exchange)
+    second: Final = await issue.exchange("idp-token", _CLIENT_ID, exchange)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_login, second_login = minter.login_ids
+    assert first_login is not None
+    assert second_login not in (None, first_login)
+    assert _refresh_family(first, signing) == first_login
+    assert _refresh_family(second, signing) == second_login
+    assert _active_login(prisma) == second_login
+
+
+@pytest.mark.asyncio
+async def test_every_jwt_bearer_assertion_is_a_new_login(prisma: FakePrisma) -> None:
+    minter: Final = _LoginMinter()
+    issue: Final = _grant_issuer(minter, _signing())
+    jtis: Final = iter(("jti-1", "jti-2"))
+
+    async def redeem(
+        assertion: str, client_id: str, client_secret: str | None, request: Request, /
+    ) -> AssertionIdentity | SubjectTokenRefusal:
+        return AssertionIdentity(user_id=_USER_ID, replay_key=next(jtis), replay_ttl_seconds=60)
+
+    first: Final = await issue.redeem_assertion("id-jag", _CLIENT_ID, None, redeem)
+    assert first.status_code == 200
+    assert _active_login(prisma) == minter.login_ids[0]
+
+    second: Final = await issue.redeem_assertion("id-jag", _CLIENT_ID, None, redeem)
+    assert second.status_code == 200
+    assert minter.login_ids[1] not in (None, minter.login_ids[0])
+    assert _active_login(prisma) == minter.login_ids[1]

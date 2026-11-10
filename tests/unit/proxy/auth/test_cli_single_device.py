@@ -95,6 +95,25 @@ async def test_a_login_becomes_the_only_live_one_for_a_flagged_user_and_keeps_ot
     assert prisma.table.row.metadata == {SINGLE_DEVICE_FLAG: True, "department": "infra", ACTIVE_LOGIN_KEY: "desktop"}
 
 
+@pytest.mark.asyncio
+async def test_turning_the_flag_back_on_keeps_every_device_until_the_next_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LITELLM_SALT_KEY", "sk-salt-single-device-test")
+    prisma: Final = FakePrisma(_user({SINGLE_DEVICE_FLAG: False, ACTIVE_LOGIN_KEY: "laptop", "department": "infra"}))
+    desktop: Final = _minted_session("desktop")
+
+    await record_cli_login(UserRepository(prisma, use_writer=True), _USER_ID, "desktop")
+    assert prisma.table.row is not None
+    assert prisma.table.row.metadata == {SINGLE_DEVICE_FLAG: False, "department": "infra"}
+
+    prisma.table.row = prisma.table.row.model_copy(
+        update={"metadata": {SINGLE_DEVICE_FLAG: True, "department": "infra"}}
+    )
+    assert await _refusal(desktop, prisma) is None
+    assert await _refusal(_minted_session("tablet"), prisma) is None
+
+
 @pytest.mark.parametrize("row", [_user({"department": "infra"}), _user(None), None], ids=["unflagged", "none", "gone"])
 @pytest.mark.asyncio
 async def test_a_login_is_not_recorded_for_a_user_who_is_not_flagged(row: LiteLLM_UserTable | None) -> None:
@@ -124,6 +143,16 @@ async def test_an_older_login_is_refused_with_a_401_that_names_no_credential() -
     assert "lite login" in refused.value.message
     assert "laptop" not in refused.value.message
     assert "cli-session" not in refused.value.message
+
+
+@pytest.mark.asyncio
+async def test_a_mismatch_is_admitted_when_the_user_row_cannot_be_re_read() -> None:
+    cached: Final = _user({SINGLE_DEVICE_FLAG: True, ACTIVE_LOGIN_KEY: "laptop"})
+
+    async def reload(user_id: str) -> LiteLLM_UserTable | None:
+        raise ConnectionError("database unreachable")
+
+    assert await enforce_cli_single_device(_session("desktop"), cached, reload) is None
 
 
 @pytest.mark.asyncio
