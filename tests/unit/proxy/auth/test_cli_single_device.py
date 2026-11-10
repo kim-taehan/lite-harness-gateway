@@ -54,7 +54,7 @@ def _session(login_id: str | None) -> UserAPIKeyAuth:
 @pytest.mark.parametrize(
     ("token_login", "user_metadata", "signed_out"),
     [
-        ("old", None, False),
+        ("old", {}, False),
         ("old", {ACTIVE_LOGIN_KEY: "new"}, False),
         ("old", {SINGLE_DEVICE_FLAG: False, ACTIVE_LOGIN_KEY: "new"}, False),
         ("old", {SINGLE_DEVICE_FLAG: "true", ACTIVE_LOGIN_KEY: "new"}, False),
@@ -77,7 +77,7 @@ def _session(login_id: str | None) -> UserAPIKeyAuth:
     ],
 )
 def test_only_a_flagged_users_older_logins_are_signed_out(
-    token_login: str | None, user_metadata: Mapping[str, object] | None, signed_out: bool
+    token_login: str | None, user_metadata: Mapping[str, object], signed_out: bool
 ) -> None:
     token_metadata: Final = {} if token_login is None else {TOKEN_LOGIN_KEY: token_login}
     assert is_signed_out(token_metadata, user_metadata) is signed_out
@@ -107,7 +107,7 @@ async def test_a_login_is_not_recorded_for_a_user_who_is_not_flagged(row: LiteLL
 
 @pytest.mark.asyncio
 async def test_a_database_fault_while_recording_does_not_fail_the_login() -> None:
-    await record_cli_login(_BrokenUsers(), _USER_ID, "laptop")
+    assert await record_cli_login(_BrokenUsers(), _USER_ID, "laptop") is None
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_a_login_newer_than_the_cached_user_row_is_admitted() -> None:
     async def reload(user_id: str) -> LiteLLM_UserTable | None:
         return fresh
 
-    await enforce_cli_single_device(_session("desktop"), cached, reload)
+    assert await enforce_cli_single_device(_session("desktop"), cached, reload) is None
 
 
 def _minted_session(login_id: str) -> UserAPIKeyAuth:

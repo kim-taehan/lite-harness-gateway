@@ -1,5 +1,6 @@
 """The Claude Code login counts as a CLI login for single-device users, and its refresh keeps that login."""
 
+from collections.abc import Sequence
 from typing import Final
 from unittest.mock import patch
 
@@ -31,7 +32,13 @@ class _LoginMinter:
         self.login_ids: tuple[str | None, ...] = ()
 
     async def __call__(
-        self, user_id: str, team_id: str | None, *, cli_login_id: str | None = None
+        self,
+        user_id: str,
+        team_id: str | None,
+        /,
+        *,
+        allowed_routes: Sequence[str] | None = None,
+        cli_login_id: str | None = None,
     ) -> MintedProxyCredential | ProxyCredentialMintFailure:
         self.login_ids = (*self.login_ids, cli_login_id)
         key: Final = ExperimentalUIJWTToken.get_cli_jwt_auth_token(

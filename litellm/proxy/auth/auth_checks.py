@@ -4074,7 +4074,7 @@ class ExperimentalUIJWTToken:
             user_role=LitellmUserRoles(user_info.user_role),
             is_session_token=True,
             allowed_routes=list(allowed_routes) if allowed_routes is not None else None,
-            metadata=cli_login_metadata(cli_login_id),
+            metadata=dict(cli_login_metadata(cli_login_id)),
         )
 
         return encrypt_bearer_token(valid_token.model_dump_json(exclude_none=True), prefix=LITELLM_SESSION_TOKEN_PREFIX)

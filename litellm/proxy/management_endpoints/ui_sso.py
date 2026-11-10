@@ -2869,7 +2869,7 @@ async def cli_poll_key(
                 max_budget=None,
                 cli_login_id=cli_login_id,
             )
-            await record_cli_login_in_db(user_id, cli_login_id)
+            await record_cli_login_in_db(user_info.user_id, cli_login_id)
 
             # Delete cache entry (single-use)
             cli_sso_session_cache.delete_cache(key=_get_cli_sso_flow_cache_key(key_id))

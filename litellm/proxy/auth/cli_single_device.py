@@ -13,10 +13,12 @@ Design notes: ``CLI_SINGLE_DEVICE_DESIGN.md``.
 
 import json
 import secrets
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol
 
 from fastapi import status
+from pydantic import TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import LiteLLM_UserTable, ProxyErrorTypes, ProxyException, UserAPIKeyAuth
@@ -34,9 +36,15 @@ ACTIVE_LOGIN_KEY: Final = "cli_active_login_id"
 TOKEN_LOGIN_KEY: Final = "cli_login_id"
 """Credential metadata key holding the login id the credential was minted for."""
 
+_METADATA_ADAPTER: Final = TypeAdapter(dict[str, object])
+
 SIGNED_OUT_MESSAGE: Final = "다른 기기에서 로그인해 이 기기의 로그인이 끝났습니다. `lite login` 을 다시 하세요"
 
-ReloadUser = Callable[[str], Awaitable[LiteLLM_UserTable | None]]
+
+class ReloadUser(Protocol):
+    """Reads a user row past the cache."""
+
+    def __call__(self, user_id: str, /) -> Awaitable[LiteLLM_UserTable | None]: ...
 
 
 class UserRows(Protocol):
@@ -51,24 +59,27 @@ def new_cli_login_id() -> str:
     return secrets.token_urlsafe(16)
 
 
-def cli_login_metadata(login_id: str | None) -> dict[str, object]:
+def cli_login_metadata(login_id: str | None) -> Mapping[str, object]:
     """The credential metadata that carries ``login_id``; empty for a credential minted outside a CLI login."""
-    return {} if login_id is None else {TOKEN_LOGIN_KEY: login_id}
+    return MappingProxyType({} if login_id is None else {TOKEN_LOGIN_KEY: login_id})
 
 
-def _single_device(user_metadata: Mapping[str, object] | None) -> bool:
-    return user_metadata is not None and user_metadata.get(SINGLE_DEVICE_FLAG) is True
+def _metadata(holder: UserAPIKeyAuth | LiteLLM_UserTable) -> Mapping[str, object]:
+    return _METADATA_ADAPTER.validate_python(
+        holder.metadata or {}  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # untyped base field
+    )
 
 
-def is_signed_out(token_metadata: Mapping[str, object] | None, user_metadata: Mapping[str, object] | None) -> bool:
+def _single_device(user_metadata: Mapping[str, object]) -> bool:
+    return user_metadata.get(SINGLE_DEVICE_FLAG) is True
+
+
+def is_signed_out(token_metadata: Mapping[str, object], user_metadata: Mapping[str, object]) -> bool:
     """True when a flagged user's latest login is not the one this credential was minted for."""
-    if not _single_device(user_metadata) or user_metadata is None:
-        return False
     active: Final = user_metadata.get(ACTIVE_LOGIN_KEY)
-    if not isinstance(active, str):
+    if not _single_device(user_metadata) or not isinstance(active, str):
         return False
-    minted_for: Final = None if token_metadata is None else token_metadata.get(TOKEN_LOGIN_KEY)
-    return minted_for != active
+    return token_metadata.get(TOKEN_LOGIN_KEY) != active
 
 
 async def enforce_cli_single_device(token: UserAPIKeyAuth, user: LiteLLM_UserTable, reload_user: ReloadUser) -> None:
@@ -77,10 +88,10 @@ async def enforce_cli_single_device(token: UserAPIKeyAuth, user: LiteLLM_UserTab
     The cached user row can be older than a login this very device just made, so a mismatch is re-checked
     against a fresh read before refusing. The message names no credential.
     """
-    if not is_signed_out(token.metadata, user.metadata):
+    if not is_signed_out(_metadata(token), _metadata(user)):
         return
     fresh: Final = await reload_user(user.user_id)
-    if fresh is not None and not is_signed_out(token.metadata, fresh.metadata):
+    if fresh is not None and not is_signed_out(_metadata(token), _metadata(fresh)):
         return
     raise ProxyException(
         message=SIGNED_OUT_MESSAGE,
@@ -108,9 +119,9 @@ async def record_cli_login(users: UserRows, user_id: str, login_id: str) -> None
     """
     try:
         user: Final = await users.find_by_id(user_id, id_field="user_id")
-        if user is None or not _single_device(user.metadata):
+        if user is None or not _single_device(_metadata(user)):
             return
-        metadata: Final = {**(user.metadata or {}), ACTIVE_LOGIN_KEY: login_id}
+        metadata: Final = {**_metadata(user), ACTIVE_LOGIN_KEY: login_id}
         await users.update(user_id, {"metadata": json.dumps(metadata)}, id_field="user_id")
     except Exception as e:  # noqa: BLE001  # the login already succeeded; only the single-device record is lost
         verbose_proxy_logger.warning("Could not record the CLI login for user %s: %s", user_id, e)

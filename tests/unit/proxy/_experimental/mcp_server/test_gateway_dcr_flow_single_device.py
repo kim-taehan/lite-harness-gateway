@@ -1,7 +1,7 @@
 """The proxy-API grant tail treats a fresh grant as a CLI login and a refresh as the same login."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Final
 from unittest.mock import patch
 
@@ -37,7 +37,13 @@ class _LoginMinter:
         self.login_ids: tuple[str | None, ...] = ()
 
     async def __call__(
-        self, user_id: str, team_id: str | None, *, cli_login_id: str | None = None
+        self,
+        user_id: str,
+        team_id: str | None,
+        /,
+        *,
+        allowed_routes: Sequence[str] | None = None,
+        cli_login_id: str | None = None,
     ) -> MintedProxyCredential | ProxyCredentialMintFailure:
         self.login_ids = (*self.login_ids, cli_login_id)
         return MintedProxyCredential(key=f"cli-{cli_login_id}", expires_in=3600, user_id=user_id, team_id=team_id)
