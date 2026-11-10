@@ -4012,6 +4012,7 @@ class ExperimentalUIJWTToken:
         team_model_aliases: Mapping[str, str] | None = None,
         max_budget: float | None = None,
         allowed_routes: Sequence[str] | None = None,
+        cli_login_id: str | None = None,
     ) -> str:
         """
         Generate a JWT token for CLI authentication with configurable expiration.
@@ -4034,6 +4035,7 @@ class ExperimentalUIJWTToken:
         import secrets
         from datetime import timedelta
 
+        from litellm.proxy.auth.cli_single_device import cli_login_metadata
         from litellm.proxy.common_utils.encrypt_decrypt_utils import (
             encrypt_bearer_token,
         )
@@ -4072,6 +4074,7 @@ class ExperimentalUIJWTToken:
             user_role=LitellmUserRoles(user_info.user_role),
             is_session_token=True,
             allowed_routes=list(allowed_routes) if allowed_routes is not None else None,
+            metadata=cli_login_metadata(cli_login_id),
         )
 
         return encrypt_bearer_token(valid_token.model_dump_json(exclude_none=True), prefix=LITELLM_SESSION_TOKEN_PREFIX)

@@ -117,6 +117,7 @@ from litellm.proxy.auth.auth_utils import (
     request_dispatched_to_provider_pass_through,
     route_in_additonal_public_routes,
 )
+from litellm.proxy.auth.cli_single_device import db_user_reloader, enforce_cli_single_device
 from litellm.proxy.auth.handle_jwt import JWTAuthManager, JWTHandler
 from litellm.proxy.auth.network import TrustedProxyConfig, resolve_network_context
 from litellm.proxy.auth.oauth2_check import Oauth2Handler
@@ -2046,6 +2047,9 @@ async def _refresh_session_token_grants(
         case ResolvedGrants(
             user_object=LiteLLM_UserTable() as user_object, team_object=team_object, team_membership=team_membership
         ):
+            await enforce_cli_single_device(
+                valid_token, user_object, db_user_reloader(prisma_client, user_api_key_cache)
+            )
             return UserAPIKeyAuth.model_validate(
                 MappingProxyType(
                     {

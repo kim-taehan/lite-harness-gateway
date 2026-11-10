@@ -48,7 +48,7 @@ async def _consent_teams(user: LiteLLM_UserTable | ReloadUserFailure) -> tuple[C
 
 
 async def mint_proxy_credential(
-    user_id: str, team_id: str | None, *, allowed_routes: Sequence[str] | None = None
+    user_id: str, team_id: str | None, *, allowed_routes: Sequence[str] | None = None, cli_login_id: str | None = None
 ) -> MintedProxyCredential | ProxyCredentialMintFailure:
     """Mint the ``lite login`` credential for a consented grant. Membership is checked
     live against the database row, so a team the user left between consent and redemption (or between refreshes)
@@ -87,6 +87,7 @@ async def mint_proxy_credential(
         team_models=selected.team_models,
         team_model_aliases=selected.team_model_aliases,
         allowed_routes=allowed_routes,
+        cli_login_id=cli_login_id,
     )
     return MintedProxyCredential(
         key=key,

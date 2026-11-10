@@ -91,6 +91,7 @@ from litellm.proxy._experimental.mcp_server.outbound_credentials.session_token i
     open_session_refresh_token,
     open_session_token,
 )
+from litellm.proxy.auth.cli_single_device import new_cli_login_id, record_cli_login_in_db
 from litellm.proxy.common_utils.encrypt_decrypt_utils import (
     decrypt_value_helper,
     encrypt_value_helper,
@@ -198,7 +199,13 @@ class MintProxyCredential(Protocol):
     and mints the same credential ``lite login`` mints."""
 
     def __call__(
-        self, user_id: str, team_id: str | None, /, *, allowed_routes: Sequence[str] | None = None
+        self,
+        user_id: str,
+        team_id: str | None,
+        /,
+        *,
+        allowed_routes: Sequence[str] | None = None,
+        cli_login_id: str | None = None,
     ) -> Awaitable[MintedProxyCredential | ProxyCredentialMintFailure]: ...
 
 
@@ -299,7 +306,7 @@ class LookupConsentTeams(Protocol):
 
 
 async def _refuse_proxy_credential(
-    user_id: str, team_id: str | None, *, allowed_routes: Sequence[str] | None = None
+    user_id: str, team_id: str | None, *, allowed_routes: Sequence[str] | None = None, cli_login_id: str | None = None
 ) -> ProxyCredentialMintFailure:
     return "unresolvable"
 
@@ -1674,7 +1681,10 @@ class _ProxyCredentialIssuer:
         ended: Final = await _family_refusal(self._guard, family)
         if ended is not None:
             return ended
-        minted: Final = await self._mint_proxy_credential(principal.user_id, principal.team_id)
+        cli_login_id: Final = family or new_cli_login_id()
+        minted: Final = await self._mint_proxy_credential(
+            principal.user_id, principal.team_id, cli_login_id=cli_login_id
+        )
         if not isinstance(minted, MintedProxyCredential):
             return _mint_failure_response(minted)
         refusal: Final = _claim_refusal(
@@ -1683,7 +1693,9 @@ class _ProxyCredentialIssuer:
         )
         if refusal is not None:
             return refusal
-        return proxy_credential_response(minted, principal, self._signing, family=family)
+        if family is None:
+            await record_cli_login_in_db(minted.user_id, cli_login_id)
+        return proxy_credential_response(minted, principal, self._signing, family=cli_login_id)
 
 
 class _GrantIssuer:
@@ -1765,10 +1777,16 @@ class _GrantIssuer:
         principal: Final = SessionPrincipal(
             user_id=identity.user_id, client_id=client_id, audience=PROXY_API_AUDIENCE, team_id=identity.team_id
         )
-        minted: Final = await self._mint_proxy_credential(principal.user_id, principal.team_id)
+        cli_login_id: Final = new_cli_login_id()
+        minted: Final = await self._mint_proxy_credential(
+            principal.user_id, principal.team_id, cli_login_id=cli_login_id
+        )
         if not isinstance(minted, MintedProxyCredential):
             return _mint_failure_response(minted)
-        return proxy_credential_response(minted, principal, self._signing, issued_token_type=ACCESS_TOKEN_TOKEN_TYPE)
+        await record_cli_login_in_db(minted.user_id, cli_login_id)
+        return proxy_credential_response(
+            minted, principal, self._signing, issued_token_type=ACCESS_TOKEN_TOKEN_TYPE, family=cli_login_id
+        )
 
     async def redeem_assertion(
         self, assertion: str, client_id: str, client_secret: str | None, redeem_assertion: RedeemAssertion
@@ -1792,11 +1810,13 @@ class _GrantIssuer:
         )
         if refused is not None:
             return refused
+        cli_login_id: Final = new_cli_login_id()
         minted: Final = await self._mint_proxy_credential(
-            identity.user_id, identity.team_id, allowed_routes=identity.allowed_routes
+            identity.user_id, identity.team_id, allowed_routes=identity.allowed_routes, cli_login_id=cli_login_id
         )
         if not isinstance(minted, MintedProxyCredential):
             return _mint_failure_response(minted)
+        await record_cli_login_in_db(minted.user_id, cli_login_id)
         return assertion_credential_response(minted, identity.scope)
 
     def _assertion_target_refusal(self) -> Response | None:
