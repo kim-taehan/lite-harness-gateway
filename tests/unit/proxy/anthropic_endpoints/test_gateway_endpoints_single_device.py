@@ -12,7 +12,7 @@ from litellm.proxy._experimental.mcp_server.gateway_dcr_flow import (
 )
 from litellm.proxy._types import LiteLLM_UserTable
 from litellm.proxy.auth.auth_checks import ExperimentalUIJWTToken
-from litellm.proxy.auth.cli_single_device import ACTIVE_LOGIN_KEY, SINGLE_DEVICE_FLAG, TOKEN_LOGIN_KEY
+from litellm.proxy.auth.cli_single_device import ACTIVE_LOGIN_KEY, TOKEN_LOGIN_KEY
 from tests.unit.proxy.anthropic_endpoints.test_gateway_endpoints import (
     _complete_flow,  # pyright: ignore[reportPrivateUsage]  # shared device-flow harness
     _gateway_env,  # pyright: ignore[reportPrivateUsage]  # shared device-flow harness
@@ -55,17 +55,15 @@ def _login_id(access_token: str) -> object:
     return token.metadata[TOKEN_LOGIN_KEY]
 
 
-def _flagged_user() -> LiteLLM_UserTable:
-    return LiteLLM_UserTable(
-        user_id=_USER_ID, user_role="internal_user", models=[], teams=["team-a"], metadata={SINGLE_DEVICE_FLAG: True}
-    )
+def _user() -> LiteLLM_UserTable:
+    return LiteLLM_UserTable(user_id=_USER_ID, user_role="internal_user", models=[], teams=["team-a"])
 
 
 def test_each_claude_code_login_becomes_the_users_only_live_login_and_refresh_keeps_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("LITELLM_SALT_KEY", "sk-salt-single-device-test")
-    prisma: Final = FakePrisma(_flagged_user())
+    prisma: Final = FakePrisma(_user())
     minter: Final = _LoginMinter()
     with (
         _gateway_env(minter=minter) as (client, cache),
@@ -84,7 +82,7 @@ def test_each_claude_code_login_becomes_the_users_only_live_login_and_refresh_ke
         laptop: Final = sign_in()
         laptop_login: Final = _login_id(laptop["access_token"])
         assert prisma.table.row is not None
-        assert prisma.table.row.metadata == {SINGLE_DEVICE_FLAG: True, ACTIVE_LOGIN_KEY: laptop_login}
+        assert prisma.table.row.metadata == {ACTIVE_LOGIN_KEY: laptop_login}
 
         first = _refresh(client, laptop["refresh_token"]).json()
         second = _refresh(client, first["refresh_token"]).json()

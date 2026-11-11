@@ -8,7 +8,7 @@ import pytest
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import LiteLLM_UserTable
 from litellm.proxy.auth.auth_checks import ExperimentalUIJWTToken
-from litellm.proxy.auth.cli_single_device import ACTIVE_LOGIN_KEY, SINGLE_DEVICE_FLAG, TOKEN_LOGIN_KEY
+from litellm.proxy.auth.cli_single_device import ACTIVE_LOGIN_KEY, TOKEN_LOGIN_KEY
 from litellm.proxy.management_endpoints.ui_sso import (
     _get_cli_sso_flow_cache_key,  # pyright: ignore[reportPrivateUsage]  # seeds the completed device flow
     _hash_cli_sso_secret,  # pyright: ignore[reportPrivateUsage]  # seeds the completed device flow
@@ -42,12 +42,10 @@ async def _lite_login(cache: DualCache, key_id: str) -> object:
 
 
 @pytest.mark.asyncio
-async def test_each_lite_login_becomes_the_flagged_users_only_live_login(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_each_lite_login_becomes_the_users_only_live_login(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LITELLM_SALT_KEY", "sk-salt-single-device-test")
     cache: Final = DualCache()
-    prisma: Final = FakePrisma(
-        LiteLLM_UserTable(user_id=_USER_ID, user_role="internal_user", models=[], metadata={SINGLE_DEVICE_FLAG: True})
-    )
+    prisma: Final = FakePrisma(LiteLLM_UserTable(user_id=_USER_ID, user_role="internal_user", models=[]))
     with (
         patch(  # test-quality-ok: the poll reads this proxy_server module global and has no injection seam
             "litellm.proxy.proxy_server.cli_sso_session_cache", cache
@@ -58,7 +56,7 @@ async def test_each_lite_login_becomes_the_flagged_users_only_live_login(monkeyp
     ):
         laptop: Final = await _lite_login(cache, "cli-laptop-login-0001")
         assert prisma.table.row is not None
-        assert prisma.table.row.metadata == {SINGLE_DEVICE_FLAG: True, ACTIVE_LOGIN_KEY: laptop}
+        assert prisma.table.row.metadata == {ACTIVE_LOGIN_KEY: laptop}
 
         desktop: Final = await _lite_login(cache, "cli-desktop-login-0001")
 

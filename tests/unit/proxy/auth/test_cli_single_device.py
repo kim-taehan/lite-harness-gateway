@@ -55,28 +55,30 @@ def _session(login_id: str | None) -> UserAPIKeyAuth:
     ("token_login", "user_metadata", "signed_out"),
     [
         ("old", {}, False),
-        ("old", {ACTIVE_LOGIN_KEY: "new"}, False),
-        ("old", {SINGLE_DEVICE_FLAG: False, ACTIVE_LOGIN_KEY: "new"}, False),
-        ("old", {SINGLE_DEVICE_FLAG: "true", ACTIVE_LOGIN_KEY: "new"}, False),
+        (None, {}, False),
         ("old", {SINGLE_DEVICE_FLAG: True}, False),
-        (None, {SINGLE_DEVICE_FLAG: True}, False),
-        ("new", {SINGLE_DEVICE_FLAG: True, ACTIVE_LOGIN_KEY: "new"}, False),
+        ("old", {ACTIVE_LOGIN_KEY: "new"}, True),
         ("old", {SINGLE_DEVICE_FLAG: True, ACTIVE_LOGIN_KEY: "new"}, True),
-        (None, {SINGLE_DEVICE_FLAG: True, ACTIVE_LOGIN_KEY: "new"}, True),
+        ("old", {SINGLE_DEVICE_FLAG: "false", ACTIVE_LOGIN_KEY: "new"}, True),
+        ("old", {SINGLE_DEVICE_FLAG: None, ACTIVE_LOGIN_KEY: "new"}, True),
+        (None, {ACTIVE_LOGIN_KEY: "new"}, True),
+        ("new", {ACTIVE_LOGIN_KEY: "new"}, False),
+        ("old", {SINGLE_DEVICE_FLAG: False, ACTIVE_LOGIN_KEY: "new"}, False),
     ],
     ids=[
-        "no-metadata",
-        "not-flagged",
-        "flag-false",
-        "flag-not-a-boolean",
-        "flagged-before-first-login",
-        "flagged-before-first-login-old-token",
-        "latest-login",
-        "older-login",
+        "before-first-login",
+        "before-first-login-old-token",
+        "flag-true-before-first-login",
+        "older-login-by-default",
+        "older-login-flag-true",
+        "flag-string-false-is-not-an-exemption",
+        "flag-null-is-not-an-exemption",
         "token-minted-before-the-feature",
+        "latest-login",
+        "exempt",
     ],
 )
-def test_only_a_flagged_users_older_logins_are_signed_out(
+def test_only_an_exempt_user_keeps_older_logins(
     token_login: str | None, user_metadata: Mapping[str, object], signed_out: bool
 ) -> None:
     token_metadata: Final = {} if token_login is None else {TOKEN_LOGIN_KEY: token_login}
@@ -84,19 +86,19 @@ def test_only_a_flagged_users_older_logins_are_signed_out(
 
 
 @pytest.mark.asyncio
-async def test_a_login_becomes_the_only_live_one_for_a_flagged_user_and_keeps_other_metadata() -> None:
-    prisma: Final = FakePrisma(_user({SINGLE_DEVICE_FLAG: True, "department": "infra"}))
+async def test_a_login_becomes_the_users_only_live_one_and_keeps_other_metadata() -> None:
+    prisma: Final = FakePrisma(_user({"department": "infra"}))
     users: Final = UserRepository(prisma, use_writer=True)
 
     await record_cli_login(users, _USER_ID, "laptop")
     await record_cli_login(users, _USER_ID, "desktop")
 
     assert prisma.table.row is not None
-    assert prisma.table.row.metadata == {SINGLE_DEVICE_FLAG: True, "department": "infra", ACTIVE_LOGIN_KEY: "desktop"}
+    assert prisma.table.row.metadata == {"department": "infra", ACTIVE_LOGIN_KEY: "desktop"}
 
 
 @pytest.mark.asyncio
-async def test_turning_the_flag_back_on_keeps_every_device_until_the_next_login(
+async def test_lifting_an_exemption_keeps_every_device_until_the_next_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("LITELLM_SALT_KEY", "sk-salt-single-device-test")
@@ -107,16 +109,16 @@ async def test_turning_the_flag_back_on_keeps_every_device_until_the_next_login(
     assert prisma.table.row is not None
     assert prisma.table.row.metadata == {SINGLE_DEVICE_FLAG: False, "department": "infra"}
 
-    prisma.table.row = prisma.table.row.model_copy(
-        update={"metadata": {SINGLE_DEVICE_FLAG: True, "department": "infra"}}
-    )
+    prisma.table.row = prisma.table.row.model_copy(update={"metadata": {"department": "infra"}})
     assert await _refusal(desktop, prisma) is None
     assert await _refusal(_minted_session("tablet"), prisma) is None
 
 
-@pytest.mark.parametrize("row", [_user({"department": "infra"}), _user(None), None], ids=["unflagged", "none", "gone"])
+@pytest.mark.parametrize(
+    "row", [_user({SINGLE_DEVICE_FLAG: False, "department": "infra"}), None], ids=["exempt", "gone"]
+)
 @pytest.mark.asyncio
-async def test_a_login_is_not_recorded_for_a_user_who_is_not_flagged(row: LiteLLM_UserTable | None) -> None:
+async def test_a_login_is_not_recorded_for_an_exempt_or_missing_user(row: LiteLLM_UserTable | None) -> None:
     prisma: Final = FakePrisma(row)
 
     await record_cli_login(UserRepository(prisma, use_writer=True), _USER_ID, "laptop")
@@ -191,12 +193,13 @@ async def _refusal(token: UserAPIKeyAuth, prisma: FakePrisma) -> str | None:
     return None
 
 
+@pytest.mark.parametrize("metadata", [None, {"department": "infra"}, {SINGLE_DEVICE_FLAG: True}])
 @pytest.mark.asyncio
 async def test_logging_in_on_a_new_device_signs_the_old_one_out_on_its_next_request(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, metadata: Mapping[str, object] | None
 ) -> None:
     monkeypatch.setenv("LITELLM_SALT_KEY", "sk-salt-single-device-test")
-    prisma: Final = FakePrisma(_user({SINGLE_DEVICE_FLAG: True}))
+    prisma: Final = FakePrisma(_user(metadata))
     users: Final = UserRepository(prisma, use_writer=True)
     laptop: Final = _minted_session("laptop")
     assert await _refusal(laptop, prisma) is None
@@ -212,9 +215,9 @@ async def test_logging_in_on_a_new_device_signs_the_old_one_out_on_its_next_requ
 
 
 @pytest.mark.asyncio
-async def test_a_user_who_is_not_flagged_keeps_every_device(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_an_exempt_user_keeps_every_device(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LITELLM_SALT_KEY", "sk-salt-single-device-test")
-    prisma: Final = FakePrisma(_user({"department": "infra"}))
+    prisma: Final = FakePrisma(_user({SINGLE_DEVICE_FLAG: False}))
     users: Final = UserRepository(prisma, use_writer=True)
     laptop: Final = _minted_session("laptop")
     await record_cli_login(users, _USER_ID, "laptop")

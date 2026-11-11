@@ -29,7 +29,7 @@ from litellm.proxy._experimental.mcp_server.outbound_credentials.session_credent
 )
 from litellm.proxy._experimental.mcp_server.outbound_credentials.session_token import SessionPrincipal
 from litellm.proxy._types import LiteLLM_UserTable
-from litellm.proxy.auth.cli_single_device import ACTIVE_LOGIN_KEY, SINGLE_DEVICE_FLAG
+from litellm.proxy.auth.cli_single_device import ACTIVE_LOGIN_KEY
 from tests.unit.proxy.auth.cli_user_table_fake import FakePrisma
 
 _USER_ID: Final = "user-123"
@@ -56,13 +56,11 @@ class _LoginMinter:
 
 @pytest.fixture
 def prisma() -> Iterator[FakePrisma]:
-    flagged: Final = FakePrisma(
-        LiteLLM_UserTable(user_id=_USER_ID, user_role="internal_user", models=[], metadata={SINGLE_DEVICE_FLAG: True})
-    )
+    user: Final = FakePrisma(LiteLLM_UserTable(user_id=_USER_ID, user_role="internal_user", models=[]))
     with patch(  # test-quality-ok: the login record reads this proxy_server module global and has no injection seam
-        "litellm.proxy.proxy_server.prisma_client", flagged
+        "litellm.proxy.proxy_server.prisma_client", user
     ):
-        yield flagged
+        yield user
 
 
 def _signing() -> SessionSigning:

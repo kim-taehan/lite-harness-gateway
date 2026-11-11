@@ -1,13 +1,14 @@
-"""Keep only a user's latest CLI login alive when an operator flags them for it.
+"""Keep only a user's latest CLI login alive.
 
-An operator sets ``cli_single_device: true`` in a user's metadata. Every CLI login (``lite login``,
-``lite login --pkce``, the Claude Code login) gets a fresh login id stamped into the credential's own
-metadata, and for a flagged user the newest id is written to the user's metadata. A credential whose id is
-not the user's current one is refused, so logging in on a new device signs the old one out.
+Every user is held to one CLI device unless an operator sets ``cli_single_device: false`` in their metadata
+(service accounts and the like). Every CLI login (``lite login``, ``lite login --pkce``, the Claude Code
+login) gets a fresh login id stamped into the credential's own metadata, and for a held user the newest id
+is written to the user's metadata. A credential whose id is not the user's current one is refused, so
+logging in on a new device signs the old one out.
 
 A refresh is not a login: the proxy-API refresh token's rotation chain (``family``) is the login id, so a
-renewal re-mints the credential with the id it already had and the device stays signed in. A flagged user
-with no recorded id yet keeps every credential they hold until their first login after the flag is set.
+renewal re-mints the credential with the id it already had and the device stays signed in. A held user
+with no recorded id yet keeps every credential they hold until their first login.
 Design notes: ``CLI_SINGLE_DEVICE_DESIGN.md``.
 """
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from litellm.proxy.utils import PrismaClient
 
 SINGLE_DEVICE_FLAG: Final = "cli_single_device"
-"""User metadata key an operator sets to ``true`` to keep that user to one CLI device."""
+"""User metadata key an operator sets to ``false`` to exempt that user; absent or anything else holds them."""
 
 ACTIVE_LOGIN_KEY: Final = "cli_active_login_id"
 """User metadata key holding the login id of the user's latest CLI login."""
@@ -71,11 +72,11 @@ def _metadata(holder: UserAPIKeyAuth | LiteLLM_UserTable) -> Mapping[str, object
 
 
 def _single_device(user_metadata: Mapping[str, object]) -> bool:
-    return user_metadata.get(SINGLE_DEVICE_FLAG) is True
+    return user_metadata.get(SINGLE_DEVICE_FLAG) is not False
 
 
 def is_signed_out(token_metadata: Mapping[str, object], user_metadata: Mapping[str, object]) -> bool:
-    """True when a flagged user's latest login is not the one this credential was minted for."""
+    """True when a held user's latest login is not the one this credential was minted for."""
     active: Final = user_metadata.get(ACTIVE_LOGIN_KEY)
     if not _single_device(user_metadata) or not isinstance(active, str):
         return False
@@ -128,10 +129,10 @@ def _metadata_after_login(current: Mapping[str, object], login_id: str) -> Mappi
 
 
 async def record_cli_login(users: UserRows, user_id: str, login_id: str) -> None:
-    """Make ``login_id`` the only live CLI login of a flagged user.
+    """Make ``login_id`` the only live CLI login of a held user.
 
-    For a user who is not flagged, a login id left over from when they were drops out, so turning the flag
-    back on later keeps every device until their next login. A database fault never fails the login itself:
+    For an exempt user, a login id left over from before the exemption drops out, so lifting the exemption
+    later keeps every device until their next login. A database fault never fails the login itself:
     the new device signs in, and the user's other devices stay signed in until a later login is recorded.
     """
     try:
