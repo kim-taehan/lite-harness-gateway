@@ -21,7 +21,7 @@ import hashlib
 import json
 import secrets
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Final
 
@@ -51,6 +51,7 @@ from litellm.proxy._experimental.mcp_server.oauth_utils import TOKEN_NO_CACHE_HE
 from litellm.proxy._experimental.mcp_server.outbound_credentials.session_token import SessionPrincipal
 from litellm.proxy._types import LiteLLM_UserTable, LitellmUserRoles
 from litellm.proxy.anthropic_endpoints.endpoints import anthropic_response, count_tokens
+from litellm.proxy.auth.cli_single_device import new_cli_login_id, record_cli_login_in_db
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.http_parsing_utils import (  # noqa: F401  # legacy module exports
     _safe_set_request_parsed_body,  # pyright: ignore[reportPrivateUsage,reportUnusedImport]  # backwards-compatible package export
@@ -85,6 +86,7 @@ class _GatewayLogin:
     user_info: LiteLLM_UserTable
     team_id: str | None
     team: CliSsoTeamDetail
+    cli_login_id: str = field(default_factory=new_cli_login_id)
 
 
 class _OAuthErrorBody(LiteLLMBaseModel):
@@ -286,6 +288,7 @@ def _mint_access_token(login: _GatewayLogin) -> str:
         team_models=login.team.team_models,
         team_model_aliases=login.team.team_model_aliases,
         max_budget=None,
+        cli_login_id=login.cli_login_id,
     )
 
 
@@ -314,6 +317,7 @@ def _renewable_credential(login: _GatewayLogin, signing: SessionSigning) -> Resp
             user_id=user_id, client_id=CLAUDE_CODE_CLIENT_ID, audience=PROXY_API_AUDIENCE, team_id=login.team_id
         ),
         signing,
+        family=login.cli_login_id,
     )
 
 
@@ -379,6 +383,7 @@ async def _handle_device_code_grant(device_code: str | None) -> Response:
         return _oauth_error_response(_OAuthError(status_code=400, error="expired_token"))
 
     await cli_sso_session_cache.async_delete_cache(key=_get_cli_sso_flow_cache_key(login_id))
+    await record_cli_login_in_db(login.user_info.user_id, login.cli_login_id)
     return credential
 
 

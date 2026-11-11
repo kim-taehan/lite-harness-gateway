@@ -1777,7 +1777,7 @@ class _Minter:
         self.allowed_routes = []
         self.result = result
 
-    async def __call__(self, user_id, team_id, allowed_routes=None):
+    async def __call__(self, user_id, team_id, allowed_routes=None, cli_login_id=None):
         self.calls.append((user_id, team_id))
         self.allowed_routes.append(allowed_routes)
         if self.result is not None:

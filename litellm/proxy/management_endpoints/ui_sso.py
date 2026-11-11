@@ -2781,6 +2781,7 @@ async def cli_poll_key(
         team_id: Optional team ID to assign to the JWT. If provided, must be one of user's teams.
     """
     from litellm.proxy.auth.auth_checks import ExperimentalUIJWTToken
+    from litellm.proxy.auth.cli_single_device import new_cli_login_id, record_cli_login_in_db
     from litellm.proxy.proxy_server import cli_sso_session_cache
 
     try:
@@ -2858,6 +2859,7 @@ async def cli_poll_key(
                 models=session_data.get("models", []),
             )
 
+            cli_login_id: Final = new_cli_login_id()
             jwt_token: Final = ExperimentalUIJWTToken.get_cli_jwt_auth_token(
                 user_info=user_info,
                 team_id=team_id,
@@ -2865,7 +2867,9 @@ async def cli_poll_key(
                 team_models=selected_team.team_models,
                 team_model_aliases=selected_team.team_model_aliases,
                 max_budget=None,
+                cli_login_id=cli_login_id,
             )
+            await record_cli_login_in_db(user_info.user_id, cli_login_id)
 
             # Delete cache entry (single-use)
             cli_sso_session_cache.delete_cache(key=_get_cli_sso_flow_cache_key(key_id))

@@ -12012,7 +12012,7 @@ def _native_client_app(monkeypatch):
     monkeypatch.setattr("litellm.proxy.proxy_server.master_key", _NATIVE_CLIENT_MASTER_KEY, raising=False)
     minted = []
 
-    async def fake_mint(user_id, team_id, allowed_routes=None):
+    async def fake_mint(user_id, team_id, allowed_routes=None, cli_login_id=None):
         minted.append((user_id, team_id))
         return MintedProxyCredential(key=f"sk-cli-{len(minted)}", expires_in=3600, user_id=user_id, team_id=team_id)
 

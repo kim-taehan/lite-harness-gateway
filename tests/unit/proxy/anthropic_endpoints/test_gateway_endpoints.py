@@ -127,7 +127,9 @@ class _Minter:
         self.failure: Final = failure
         self.calls: tuple[tuple[str, str | None], ...] = ()
 
-    async def __call__(self, user_id: str, team_id: str | None) -> MintedProxyCredential | ProxyCredentialMintFailure:
+    async def __call__(
+        self, user_id: str, team_id: str | None, *, cli_login_id: str | None = None
+    ) -> MintedProxyCredential | ProxyCredentialMintFailure:
         self.calls = (*self.calls, (user_id, team_id))
         if self.failure is not None:
             return self.failure
